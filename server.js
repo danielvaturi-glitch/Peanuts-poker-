@@ -11,6 +11,12 @@ const server = http.createServer(app);
 const io = new Server(server);
 
 // serve static files
+// TEMP: disable caching while we verify assets
+app.use((req, res, next) => {
+  res.setHeader('Cache-Control', 'no-store');
+  next();
+});
+app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.static(path.join(__dirname, 'public')));
 
 const PORT = process.env.PORT || 3000;
