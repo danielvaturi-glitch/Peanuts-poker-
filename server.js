@@ -1,335 +1,226 @@
-// server.js
-// Peanuts (PLO+Hold'em) multiplayer room-based game
+// public/client.js
+// Client-side logic for Peanuts Poker (Hold'em + PLO) with SVG card faces
 
-const express = require('express');
-const http = require('http');
-const { Server } = require('socket.io');
-const path = require('path');
+/* ------------------ Socket ------------------ */
+const socket = io();
 
-const app = express();
-const server = http.createServer(app);
-const io = new Server(server);
+/* ------------------ DOM helpers ------------------ */
+const el = (id) => document.getElementById(id);
+const intro = el("intro");
+const lobby = el("lobby");
+const selecting = el("selecting");
+const revealed = el("revealed");
+const results = el("results");
 
-// serve static files
-app.use(express.static(path.join(__dirname, 'public')));
+function show(view) {
+  [intro, lobby, selecting, revealed, results].forEach((v) =>
+    v.classList.add("hidden")
+  );
+  view.classList.remove("hidden");
+}
 
-const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-  console.log(`Peanuts server listening on http://localhost:${PORT}`);
+function escapeHtml(str) {
+  return (str || "").replace(/[&<>"']/g, (m) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;"
+  }[m]));
+}
+
+/* ------------------ Card rendering (SVG) ------------------ */
+/** Build a pretty card DOM node with inline SVG (no external images). */
+function cardChip(card) {
+  // card like "Ah", "Td", "7s", "Qc"
+  const rankChar = card[0].toUpperCase();
+  const suitChar = card[1].toLowerCase();
+
+  const rankPretty = (r => (r === 'T' ? '10' : r))(rankChar);
+  const suitSymbol = ({ c: '♣', d: '♦', h: '♥', s: '♠' })[suitChar] || '?';
+  const isRed = (suitChar === 'h' || suitChar === 'd');
+  const colorClass = isRed ? 'red' : 'black';
+
+  const svg = `
+    <svg class="cardsvg" viewBox="0 0 200 280" role="img" aria-label="${rankPretty}${suitSymbol}">
+      <!-- Corners -->
+      <g transform="translate(12, 18)" class="${colorClass}">
+        <text class="rank small corner" x="0" y="22">${rankPretty}</text>
+        <text class="corner" x="2" y="46" style="font:700 22px/1 'Segoe UI Symbol','Apple Color Emoji','Noto Color Emoji'">${suitSymbol}</text>
+      </g>
+      <g transform="translate(188, 262) rotate(180)" class="${colorClass}">
+        <text class="rank small corner" x="0" y="22">${rankPretty}</text>
+        <text class="corner" x="2" y="46" style="font:700 22px/1 'Segoe UI Symbol','Apple Color Emoji','Noto Color Emoji'">${suitSymbol}</text>
+      </g>
+      <!-- Center suit -->
+      <g class="${colorClass}">
+        <text class="suit center" x="100" y="155" text-anchor="middle">${suitSymbol}</text>
+      </g>
+    </svg>
+  `;
+
+  const div = document.createElement("div");
+  div.className = "cardchip";
+  div.setAttribute("data-card", card);
+  div.innerHTML = svg;
+  return div;
+}
+
+/* ------------------ Client state ------------------ */
+const state = {
+  room: null,
+  you: null,
+  isHost: false,
+  yourCards: [],
+  pickH: new Set(), // 2 for Hold'em
+  pickP: new Set(), // 4 for PLO
+};
+
+/* ------------------ Rendering ------------------ */
+function renderPlayers(players) {
+  const c = el("players");
+  c.innerHTML = "";
+  players.forEach((p) => {
+    const row = document.createElement("div");
+    row.className = "playerRow";
+    const bal = Number(p.balance || 0);
+    const balStr = (bal >= 0 ? "+" : "") + bal.toFixed(2);
+    row.innerHTML = `
+      <div>
+        <span class="namechip">${escapeHtml(p.name)}</span>
+        ${p.isHost ? '<span class="badge">Host</span>' : ""}
+        ${p.locked ? '<span class="badge">Locked</span>' : ""}
+      </div>
+      <div class="${bal >= 0 ? "positive" : "negative"} mono">${balStr}</div>
+    `;
+    c.appendChild(row);
+  });
+}
+
+function renderBoard(targetId, cards) {
+  const cont = el(targetId);
+  cont.innerHTML = "";
+  (cards || []).forEach((c) => cont.appendChild(cardChip(c)));
+}
+
+function renderHand(cards) {
+  const cont = el("yourHand");
+  cont.innerHTML = "";
+  (cards || []).forEach((card) => {
+    const chip = cardChip(card);
+    chip.addEventListener("click", () => toggleSelection(card));
+    if (state.pickH.has(card) || state.pickP.has(card)) chip.classList.add("selected");
+    cont.appendChild(chip);
+  });
+}
+
+function renderPickBoxes() {
+  const h = el("pickHoldem");
+  const p = el("pickPLO");
+  h.innerHTML = "";
+  p.innerHTML = "";
+  Array.from(state.pickH).forEach((card) => h.appendChild(cardChip(card)));
+  Array.from(state.pickP).forEach((card) => p.appendChild(cardChip(card)));
+}
+
+/* ------------------ Selection logic ------------------ */
+function toggleSelection(card) {
+  const inH = state.pickH.has(card);
+  const inP = state.pickP.has(card);
+
+  if (!inH && !inP) {
+    if (state.pickH.size < 2) state.pickH.add(card);
+    else if (state.pickP.size < 4) state.pickP.add(card);
+    else return; // already full
+  } else if (inH) {
+    state.pickH.delete(card);
+  } else if (inP) {
+    state.pickP.delete(card);
+  }
+
+  renderHand(state.yourCards);
+  renderPickBoxes();
+}
+
+/* ------------------ UI events ------------------ */
+el("joinBtn").onclick = () => {
+  const roomCode = el("room").value;
+  const name = el("name").value;
+  socket.emit("joinRoom", { roomCode, name }, (res) => {
+    if (!res?.ok) return alert(res?.error || "Failed to join.");
+    state.room = roomCode;
+    state.you = res.name;
+    state.isHost = !!res.isHost;
+    show(lobby);
+  });
+};
+
+el("setAnte").onclick = () => {
+  if (!state.isHost) return;
+  const anteVal = Number(el("anteInput").value) || 0;
+  socket.emit("setAnte", anteVal);
+};
+
+el("startBtn").onclick = () => {
+  if (state.isHost) socket.emit("startHand");
+};
+
+el("lockBtn").onclick = () => {
+  if (state.pickH.size !== 2 || state.pickP.size !== 4)
+    return alert("Pick 2 for Hold’em and 4 for PLO before locking.");
+  socket.emit(
+    "makeSelections",
+    { holdemTwo: Array.from(state.pickH), ploFour: Array.from(state.pickP) },
+    (res) => {
+      if (!res?.ok) alert(res?.error || "Could not lock selections.");
+    }
+  );
+};
+
+el("nextBtn").onclick = () => {
+  if (state.isHost) socket.emit("nextHand");
+};
+
+/* ------------------ Socket events ------------------ */
+socket.on("roomUpdate", (data) => {
+  renderPlayers(data.players);
+  el("anteInput").value = data.ante || 0;
+
+  if (data.stage === "lobby") show(lobby);
+  else if (data.stage === "selecting") show(selecting);
+  else if (data.stage === "revealed") {
+    show(revealed);
+    renderBoard("board", data.board || []);
+  } else if (data.stage === "results") {
+    show(results);
+  }
 });
 
-// -------------------- Game Logic --------------------
+socket.on("yourCards", ({ cards }) => {
+  state.yourCards = cards || [];
+  state.pickH = new Set();
+  state.pickP = new Set();
+  renderHand(state.yourCards);
+  renderPickBoxes();
+  show(selecting);
+});
 
-const MAX_PLAYERS = 6;
+socket.on("results", (payload) => {
+  renderBoard("finalBoard", payload.board || []);
 
-const SUITS = ['c', 'd', 'h', 's'];
-const RANKS = ['2','3','4','5','6','7','8','9','T','J','Q','K','A'];
+  const winnersDiv = el("winners");
+  const nameOf = (sid) => payload.picks[sid]?.name || sid;
+  const holdemNames = (payload.winners?.holdem || []).map(nameOf).join(", ");
+  const ploNames = (payload.winners?.plo || []).map(nameOf).join(", ");
+  const scoopNames = (payload.scoops || []).map(nameOf).join(", ");
 
-function newDeck() {
-  const deck = [];
-  for (const r of RANKS) for (const s of SUITS) deck.push(r + s);
-  for (let i = deck.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [deck[i], deck[j]] = [deck[j], deck[i]];
+  let html = "";
+  html += `<p><strong>Hold’em:</strong> ${escapeHtml(holdemNames || "-")}</p>`;
+  html += `<p><strong>PLO:</strong> ${escapeHtml(ploNames || "-")}</p>`;
+  if (payload.scoops && payload.scoops.length) {
+    html += `<p>💥 SCOOP by ${escapeHtml(scoopNames)}</p>`;
   }
-  return deck;
-}
+  winnersDiv.innerHTML = html;
 
-const RANK_ORDER = {
-  '2':2,'3':3,'4':4,'5':5,'6':6,'7':7,
-  '8':8,'9':9,'T':10,'J':11,'Q':12,'K':13,'A':14
-};
-const cv = c => RANK_ORDER[c[0]];
-const cs = c => c[1];
-
-function rankCounts(cards) {
-  const counts = {};
-  for (const c of cards) counts[cv(c)] = (counts[cv(c)]||0)+1;
-  return Object.entries(counts).map(([v,c])=>({v:+v,c}))
-    .sort((a,b)=> (b.c - a.c) || (b.v - a.v));
-}
-
-function isFlush(cards) {
-  const s = cs(cards[0]);
-  return cards.every(c => cs(c) === s);
-}
-
-function isStraight(cards) {
-  const vals = [...new Set(cards.map(cv))].sort((a,b)=>a-b);
-  if (vals.length < 5) return {ok:false};
-  for (let i=0;i<=vals.length-5;i++){
-    const run = vals.slice(i,i+5);
-    if (run[4]-run[0]===4) return {ok:true,high:run[4]};
-  }
-  if (vals.includes(14) && [2,3,4,5].every(x=>vals.includes(x)))
-    return {ok:true,high:5,wheel:true};
-  return {ok:false};
-}
-
-function sortValsDesc(arr){ return arr.slice().sort((a,b)=>b-a); }
-
-function eval5(cards) {
-  const c = cards.slice().sort((a,b)=>cv(b)-cv(a));
-  const flush = isFlush(c);
-  const straight = isStraight(c);
-  const counts = rankCounts(c);
-
-  if (flush && straight.ok) return [8, straight.high];               // Straight flush
-  if (counts[0].c===4) return [7, counts[0].v, counts[1].v];          // Quads
-  if (counts[0].c===3 && counts[1]?.c===2) return [6, counts[0].v, counts[1].v]; // Full house
-  if (flush) return [5, ...sortValsDesc(c.map(cv))];                  // Flush
-  if (straight.ok) return [4, straight.high];                         // Straight
-  if (counts[0].c===3)                                                // Trips
-    return [3, counts[0].v, ...sortValsDesc(counts.filter(e=>e.c===1).map(e=>e.v)).slice(0,2)];
-  if (counts[0].c===2 && counts[1]?.c===2) {                          // Two pair
-    const hp = Math.max(counts[0].v,counts[1].v);
-    const lp = Math.min(counts[0].v,counts[1].v);
-    const k = counts.find(e=>e.c===1).v;
-    return [2, hp, lp, k];
-  }
-  if (counts[0].c===2)                                                // One pair
-    return [1, counts[0].v, ...sortValsDesc(counts.filter(e=>e.c===1).map(e=>e.v)).slice(0,3)];
-
-  return [0, ...sortValsDesc(c.map(cv))];                             // High card
-}
-
-function cmp5(a,b){
-  for(let i=0;i<Math.max(a.length,b.length);i++){
-    const av=a[i]||0,bv=b[i]||0;
-    if (av!==bv) return av>bv?1:-1;
-  }
-  return 0;
-}
-
-function bestOfN(cards){
-  let best=null, score=null;
-  const n=cards.length;
-  for(let a=0;a<n-4;a++)
-    for(let b=a+1;b<n-3;b++)
-      for(let c=a+2;c<n-2;c++)
-        for(let d=a+3;d<n-1;d++)
-          for(let e=a+4;e<n;e++){
-            const hand=[cards[a],cards[b],cards[c],cards[d],cards[e]];
-            const s=eval5(hand);
-            if(!score || cmp5(s,score)>0){ score=s; best=hand; }
-          }
-  return {hand:best,score};
-}
-
-const evalHoldem = (hole, board) => bestOfN(hole.concat(board)).score;
-
-function evalPLO(hole4, board){
-  const choose2 = a => { const r=[]; for(let i=0;i<a.length;i++) for(let j=i+1;j<a.length;j++) r.push([a[i],a[j]]); return r; };
-  const choose3 = a => { const r=[]; for(let i=0;i<a.length;i++) for(let j=i+1;j<a.length;j++) for(let k=j+1;k<a.length;k++) r.push([a[i],a[j],a[k]]); return r; };
-  let best=null;
-  for (const h of choose2(hole4))
-    for (const b of choose3(board)){
-      const s = eval5(h.concat(b));
-      if (!best || cmp5(s,best)>0) best=s;
-    }
-  return best;
-}
-
-// -------------------- Rooms --------------------
-const rooms = new Map();
-
-function getRoom(code){
-  if (!rooms.has(code)){
-    rooms.set(code, {
-      players: new Map(),         // socketId -> { name }
-      hostId: null,               // socketId of host
-      stage: 'lobby',             // lobby | selecting | revealed | results
-      deck: [],
-      board: [],
-      ante: 0,
-      handNumber: 0,
-      balances: new Map(),        // socketId -> number
-      holes: {}                   // socketId -> { hole:[6], pickHoldem:[2], pickPLO:[4], locked:bool }
-    });
-  }
-  return rooms.get(code);
-}
-
-function publicState(room){
-  const players=[];
-  for (const [sid,p] of room.players.entries()){
-    players.push({
-      id: sid,
-      name: p.name,
-      isHost: room.hostId===sid,
-      balance: room.balances.get(sid)||0,
-      locked: room.holes[sid]?.locked || false
-    });
-  }
-  return {
-    stage: room.stage,
-    players,
-    board: (room.stage==='revealed' || room.stage==='results') ? room.board : [],
-    ante: room.ante,
-    handNumber: room.handNumber
-  };
-}
-
-// -------------------- Socket Events --------------------
-io.on('connection',(socket)=>{
-
-  socket.on('joinRoom', ({roomCode,name}, cb)=>{
-    const code = (roomCode||'').trim().toUpperCase();
-    if (!/^[A-Z0-9]{3,8}$/.test(code)) return cb({ok:false, error:'Invalid room code'});
-    const room = getRoom(code);
-    if (room.players.size >= MAX_PLAYERS) return cb({ok:false, error:'Room full'});
-
-    // unique name within room
-    let finalName = (name||'Player').trim() || 'Player';
-    const names = new Set([...room.players.values()].map(p=>p.name));
-    let suffix=1, candidate=finalName;
-    while (names.has(candidate)) { candidate = `${finalName} ${suffix++}`; }
-    finalName = candidate;
-
-    room.players.set(socket.id, { name: finalName });
-    if (!room.hostId) room.hostId = socket.id;
-    if (!room.balances.has(socket.id)) room.balances.set(socket.id, 0);
-    room.holes[socket.id] = null;
-
-    socket.join(code);
-    socket.data.roomCode = code;
-    socket.data.name = finalName;
-
-    io.to(code).emit('roomUpdate', publicState(room));
-    cb({ok:true, name: finalName, isHost: room.hostId===socket.id});
-  });
-
-  socket.on('setAnte', (ante)=>{
-    const code = socket.data.roomCode; if(!code) return;
-    const room = getRoom(code);
-    if (room.hostId !== socket.id) return;
-    room.ante = Math.max(0, Number(ante)||0);
-    io.to(code).emit('roomUpdate', publicState(room));
-  });
-
-  socket.on('startHand', ()=>{
-    const code = socket.data.roomCode; if(!code) return;
-    const room = getRoom(code);
-    if (room.hostId !== socket.id) return;
-    if (room.players.size < 2) return;
-
-    room.deck = newDeck();
-    room.board = [];
-    room.stage = 'selecting';
-    room.handNumber += 1;
-
-    for (const [sid] of room.players){
-      const hole = [room.deck.pop(),room.deck.pop(),room.deck.pop(),room.deck.pop(),room.deck.pop(),room.deck.pop()];
-      room.holes[sid] = { hole, pickHoldem: [], pickPLO: [], locked: false };
-      room.balances.set(sid, (room.balances.get(sid)||0) - room.ante);
-      io.to(sid).emit('yourCards', { cards: hole });
-    }
-
-    io.to(code).emit('roomUpdate', publicState(room));
-  });
-
-  socket.on('makeSelections', ({holdemTwo, ploFour}, cb)=>{
-    const code = socket.data.roomCode; if(!code) return cb && cb({ok:false, error:'No room'});
-    const room = getRoom(code);
-    const h = room.holes[socket.id];
-    if (!h) return cb && cb({ok:false, error:'No cards dealt'});
-
-    const set = new Set(h.hole);
-    if ((holdemTwo||[]).length !== 2 || (ploFour||[]).length !== 4)
-      return cb && cb({ok:false, error:'Need 2 Hold’em + 4 PLO'});
-    for (const c of [...holdemTwo, ...ploFour]){
-      if (!set.has(c)) return cb && cb({ok:false, error:'Invalid card'});
-    }
-
-    h.pickHoldem = [...holdemTwo];
-    h.pickPLO = [...ploFour];
-    h.locked = true;
-
-    io.to(code).emit('roomUpdate', publicState(room));
-
-    // if all locked, deal & score
-    const allLocked = [...room.players.keys()].every(sid => room.holes[sid]?.locked);
-    if (allLocked){
-      room.board = [room.deck.pop(),room.deck.pop(),room.deck.pop(),room.deck.pop(),room.deck.pop()];
-      room.stage = 'revealed';
-      io.to(code).emit('roomUpdate', publicState(room));
-
-      setTimeout(()=>{
-        const scoresH = [];
-        const scoresP = [];
-
-        for (const [sid] of room.players){
-          scoresH.push({sid, score: evalHoldem(room.holes[sid].pickHoldem, room.board)});
-          scoresP.push({sid, score: evalPLO(room.holes[sid].pickPLO, room.board)});
-        }
-
-        scoresH.sort((a,b)=>cmp5(b.score,a.score));
-        scoresP.sort((a,b)=>cmp5(b.score,a.score));
-
-        const topH = scoresH.filter(x=>cmp5(x.score,scoresH[0].score)===0).map(x=>x.sid);
-        const topP = scoresP.filter(x=>cmp5(x.score,scoresP[0].score)===0).map(x=>x.sid);
-
-        const pot = room.ante * room.players.size;
-        const heShare = (pot/2) / topH.length;
-        const ploShare = (pot/2) / topP.length;
-
-        for (const sid of topH) room.balances.set(sid, (room.balances.get(sid)||0) + heShare);
-        for (const sid of topP) room.balances.set(sid, (room.balances.get(sid)||0) + ploShare);
-
-        const scoops = (topH.length===1 && topP.length===1 && topH[0]===topP[0]) ? [topH[0]] : [];
-
-        io.to(code).emit('results', {
-          board: room.board,
-          winners: { holdem: topH, plo: topP },
-          scoops,
-          picks: Object.fromEntries(
-            Object.entries(room.holes).map(([sid,d])=>[
-              sid,
-              { name: room.players.get(sid).name, holdem: d.pickHoldem, plo: d.pickPLO, hole: d.hole }
-            ])
-          )
-        });
-
-        room.stage = 'results';
-        io.to(code).emit('roomUpdate', publicState(room));
-      }, 800);
-    }
-
-    cb && cb({ok:true});
-  });
-
-  socket.on('nextHand', ()=>{
-    const code = socket.data.roomCode; if(!code) return;
-    const room = getRoom(code);
-    if (room.hostId !== socket.id) return;
-
-    room.stage = 'lobby';
-    room.board = [];
-    room.deck = [];
-    room.holes = {};
-
-    io.to(code).emit('roomUpdate', publicState(room));
-  });
-
-  socket.on('disconnect', ()=>{
-    const code = socket.data.roomCode; if(!code) return;
-    const room = getRoom(code);
-    if (!room.players.has(socket.id)) return;
-
-    room.players.delete(socket.id);
-    room.balances.delete(socket.id);
-    delete room.holes[socket.id];
-
-    if (room.hostId === socket.id){
-      const next = room.players.keys().next();
-      room.hostId = next.done ? null : next.value;
-    }
-
-    if (room.players.size === 0) {
-      rooms.delete(code);
-    } else {
-      io.to(code).emit('roomUpdate', publicState(room));
-    }
-  });
-
+  show(results);
 });
