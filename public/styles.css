@@ -1,226 +1,201 @@
-// public/client.js
-// Client-side logic for Peanuts Poker (Hold'em + PLO) with SVG card faces
-
-/* ------------------ Socket ------------------ */
-const socket = io();
-
-/* ------------------ DOM helpers ------------------ */
-const el = (id) => document.getElementById(id);
-const intro = el("intro");
-const lobby = el("lobby");
-const selecting = el("selecting");
-const revealed = el("revealed");
-const results = el("results");
-
-function show(view) {
-  [intro, lobby, selecting, revealed, results].forEach((v) =>
-    v.classList.add("hidden")
-  );
-  view.classList.remove("hidden");
+/* ==== Base / Layout ======================================================= */
+* { box-sizing: border-box; }
+:root {
+  --bg1: #0c1022;
+  --bg2: #0e1a33;
+  --panel: rgba(20, 32, 58, 0.72);
+  --panel-border: rgba(80, 140, 220, 0.25);
+  --panel-shadow: 0 20px 60px rgba(0,0,0,0.45);
+  --input-bg: rgba(12, 26, 48, 0.9);
+  --input-border: rgba(120, 170, 240, 0.35);
+  --input-focus: #80b7ff;
+  --text: #eaf2ff;
+  --muted: #a8bddc;
+  --accent: #4da3ff;
+  --accent-2: #5ee7ff;
+  --good: #9fef9f;
+  --bad: #ff9f9f;
 }
 
-function escapeHtml(str) {
-  return (str || "").replace(/[&<>"']/g, (m) => ({
-    "&": "&amp;",
-    "<": "&lt;",
-    ">": "&gt;",
-    '"': "&quot;",
-    "'": "&#39;"
-  }[m]));
+html, body { height: 100%; }
+body {
+  margin: 0;
+  color: var(--text);
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+  background: radial-gradient(1200px 800px at 10% 0%, #0a1d3c 0%, transparent 70%),
+              radial-gradient(900px 700px at 90% 100%, #092036 0%, transparent 60%),
+              linear-gradient(160deg, var(--bg1), var(--bg2));
 }
 
-/* ------------------ Card rendering (SVG) ------------------ */
-/** Build a pretty card DOM node with inline SVG (no external images). */
-function cardChip(card) {
-  // card like "Ah", "Td", "7s", "Qc"
-  const rankChar = card[0].toUpperCase();
-  const suitChar = card[1].toLowerCase();
-
-  const rankPretty = (r => (r === 'T' ? '10' : r))(rankChar);
-  const suitSymbol = ({ c: '♣', d: '♦', h: '♥', s: '♠' })[suitChar] || '?';
-  const isRed = (suitChar === 'h' || suitChar === 'd');
-  const colorClass = isRed ? 'red' : 'black';
-
-  const svg = `
-    <svg class="cardsvg" viewBox="0 0 200 280" role="img" aria-label="${rankPretty}${suitSymbol}">
-      <!-- Corners -->
-      <g transform="translate(12, 18)" class="${colorClass}">
-        <text class="rank small corner" x="0" y="22">${rankPretty}</text>
-        <text class="corner" x="2" y="46" style="font:700 22px/1 'Segoe UI Symbol','Apple Color Emoji','Noto Color Emoji'">${suitSymbol}</text>
-      </g>
-      <g transform="translate(188, 262) rotate(180)" class="${colorClass}">
-        <text class="rank small corner" x="0" y="22">${rankPretty}</text>
-        <text class="corner" x="2" y="46" style="font:700 22px/1 'Segoe UI Symbol','Apple Color Emoji','Noto Color Emoji'">${suitSymbol}</text>
-      </g>
-      <!-- Center suit -->
-      <g class="${colorClass}">
-        <text class="suit center" x="100" y="155" text-anchor="middle">${suitSymbol}</text>
-      </g>
-    </svg>
-  `;
-
-  const div = document.createElement("div");
-  div.className = "cardchip";
-  div.setAttribute("data-card", card);
-  div.innerHTML = svg;
-  return div;
+/* Subtle animated lights */
+body::before, body::after {
+  content: "";
+  position: fixed;
+  inset: -10%;
+  pointer-events: none;
+  background: radial-gradient(500px 300px at 20% 30%, rgba(77,163,255,0.18), transparent 60%),
+              radial-gradient(420px 260px at 80% 70%, rgba(94,231,255,0.12), transparent 60%);
+  filter: blur(20px);
+  z-index: 0;
 }
 
-/* ------------------ Client state ------------------ */
-const state = {
-  room: null,
-  you: null,
-  isHost: false,
-  yourCards: [],
-  pickH: new Set(), // 2 for Hold'em
-  pickP: new Set(), // 4 for PLO
-};
+.hidden { display: none; }
 
-/* ------------------ Rendering ------------------ */
-function renderPlayers(players) {
-  const c = el("players");
-  c.innerHTML = "";
-  players.forEach((p) => {
-    const row = document.createElement("div");
-    row.className = "playerRow";
-    const bal = Number(p.balance || 0);
-    const balStr = (bal >= 0 ? "+" : "") + bal.toFixed(2);
-    row.innerHTML = `
-      <div>
-        <span class="namechip">${escapeHtml(p.name)}</span>
-        ${p.isHost ? '<span class="badge">Host</span>' : ""}
-        ${p.locked ? '<span class="badge">Locked</span>' : ""}
-      </div>
-      <div class="${bal >= 0 ? "positive" : "negative"} mono">${balStr}</div>
-    `;
-    c.appendChild(row);
-  });
+#app {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: clamp(12px, 2vw, 24px);
+  position: relative;
+  z-index: 1;
 }
 
-function renderBoard(targetId, cards) {
-  const cont = el(targetId);
-  cont.innerHTML = "";
-  (cards || []).forEach((c) => cont.appendChild(cardChip(c)));
+.card {
+  background: var(--panel);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid var(--panel-border);
+  border-radius: 16px;
+  padding: clamp(16px, 3vw, 28px);
+  max-width: 1040px;
+  width: 100%;
+  box-shadow: var(--panel-shadow);
 }
 
-function renderHand(cards) {
-  const cont = el("yourHand");
-  cont.innerHTML = "";
-  (cards || []).forEach((card) => {
-    const chip = cardChip(card);
-    chip.addEventListener("click", () => toggleSelection(card));
-    if (state.pickH.has(card) || state.pickP.has(card)) chip.classList.add("selected");
-    cont.appendChild(chip);
-  });
+h1 {
+  margin: 0 0 12px;
+  font-size: clamp(22px, 3vw, 32px);
+  letter-spacing: 0.3px;
+}
+h2, h3 { margin: 10px 0; }
+
+/* ==== Controls ============================================================ */
+.row { display: flex; align-items: center; gap: 12px; margin: 10px 0; flex-wrap: wrap; }
+label { display: inline-block; min-width: 110px; color: var(--muted); }
+
+input, button {
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--input-border);
+  background: var(--input-bg);
+  color: var(--text);
+  transition: border-color .15s ease, box-shadow .15s ease, transform .06s ease;
+  outline: none;
+}
+input:focus { border-color: var(--input-focus); box-shadow: 0 0 0 3px rgba(77,163,255,0.15); }
+
+button {
+  cursor: pointer;
+  background: linear-gradient(180deg, #1b3a67, #132a4d);
+  border-color: rgba(120,170,240,0.4);
+  box-shadow: 0 6px 20px rgba(0,0,0,0.35);
+}
+button:hover { transform: translateY(-1px); }
+button:active { transform: translateY(0); }
+button.secondary {
+  background: linear-gradient(180deg, #17304f, #12243b);
 }
 
-function renderPickBoxes() {
-  const h = el("pickHoldem");
-  const p = el("pickPLO");
-  h.innerHTML = "";
-  p.innerHTML = "";
-  Array.from(state.pickH).forEach((card) => h.appendChild(cardChip(card)));
-  Array.from(state.pickP).forEach((card) => p.appendChild(cardChip(card)));
+.helper { color: var(--muted); margin-top: -4px; }
+
+/* ==== Player List / Status =============================================== */
+.namechip {
+  background: rgba(10, 21, 34, 0.9);
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid #2b4f77;
+}
+.playerRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 0;
+  border-bottom: 1px dashed #244361;
+}
+.badge {
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid #2b4f77;
+  font-size: 0.85rem;
+  margin-left: 6px;
+}
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.positive { color: var(--good); }
+.negative { color: var(--bad); }
+
+/* ==== Board / Picks ======================================================= */
+.board { display: flex; gap: 10px; flex-wrap: wrap; margin: 12px 0; }
+.pickBox {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 10px;
+  background: rgba(10, 21, 34, 0.75);
+  border: 1px solid #2b4f77;
+  border-radius: 12px;
+  min-height: 138px;
 }
 
-/* ------------------ Selection logic ------------------ */
-function toggleSelection(card) {
-  const inH = state.pickH.has(card);
-  const inP = state.pickP.has(card);
-
-  if (!inH && !inP) {
-    if (state.pickH.size < 2) state.pickH.add(card);
-    else if (state.pickP.size < 4) state.pickP.add(card);
-    else return; // already full
-  } else if (inH) {
-    state.pickH.delete(card);
-  } else if (inP) {
-    state.pickP.delete(card);
-  }
-
-  renderHand(state.yourCards);
-  renderPickBoxes();
+/* ==== Card Visuals (SVG) ================================================= */
+.cardchip {
+  width: 86px;
+  height: 120px;
+  border-radius: 12px;
+  background: #ffffff;
+  border: 1px solid #d0d6e0;
+  box-shadow: 0 8px 18px rgba(0,0,0,0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  user-select: none;
+  position: relative;
+  transition: transform 0.06s ease, box-shadow 0.06s ease, outline 0.06s ease;
+}
+.cardchip:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 24px rgba(0,0,0,0.46);
+}
+.cardchip.selected {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
 }
 
-/* ------------------ UI events ------------------ */
-el("joinBtn").onclick = () => {
-  const roomCode = el("room").value;
-  const name = el("name").value;
-  socket.emit("joinRoom", { roomCode, name }, (res) => {
-    if (!res?.ok) return alert(res?.error || "Failed to join.");
-    state.room = roomCode;
-    state.you = res.name;
-    state.isHost = !!res.isHost;
-    show(lobby);
-  });
-};
+.cardsvg { width: 82px; height: 116px; }
+.rank { font: 700 28px/1 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+.rank.small { font: 700 22px/1 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+.suit { font: 700 44px/1 'Segoe UI Symbol', 'Apple Color Emoji', 'Noto Color Emoji', sans-serif; }
+.corner { fill: currentColor; }
+.center { fill: currentColor; opacity: 0.9; }
 
-el("setAnte").onclick = () => {
-  if (!state.isHost) return;
-  const anteVal = Number(el("anteInput").value) || 0;
-  socket.emit("setAnte", anteVal);
-};
+.red { color: #d12b2b; }
+.black { color: #0f0f14; }
 
-el("startBtn").onclick = () => {
-  if (state.isHost) socket.emit("startHand");
-};
+/* ==== Sections spacing tweaks ============================================ */
+#intro p { opacity: 0.92; margin: 6px 0 12px; }
+#lobby, #selecting, #revealed, #results { margin-top: 10px; }
 
-el("lockBtn").onclick = () => {
-  if (state.pickH.size !== 2 || state.pickP.size !== 4)
-    return alert("Pick 2 for Hold’em and 4 for PLO before locking.");
-  socket.emit(
-    "makeSelections",
-    { holdemTwo: Array.from(state.pickH), ploFour: Array.from(state.pickP) },
-    (res) => {
-      if (!res?.ok) alert(res?.error || "Could not lock selections.");
-    }
-  );
-};
+/* (Optional) Chat styles - harmless if not used yet */
+#chat { margin-top: 10px; }
+.chatlog {
+  background: rgba(10, 21, 34, 0.8);
+  border:1px solid #2b4f77;
+  border-radius:8px;
+  padding:8px;
+  max-height:200px;
+  overflow:auto;
+}
+.chatmsg { margin:4px 0; }
+.chatmsg .who { font-weight:700; margin-right:6px; }
+.chatmsg.system { opacity:0.8; font-style:italic; }
 
-el("nextBtn").onclick = () => {
-  if (state.isHost) socket.emit("nextHand");
-};
-
-/* ------------------ Socket events ------------------ */
-socket.on("roomUpdate", (data) => {
-  renderPlayers(data.players);
-  el("anteInput").value = data.ante || 0;
-
-  if (data.stage === "lobby") show(lobby);
-  else if (data.stage === "selecting") show(selecting);
-  else if (data.stage === "revealed") {
-    show(revealed);
-    renderBoard("board", data.board || []);
-  } else if (data.stage === "results") {
-    show(results);
-  }
-});
-
-socket.on("yourCards", ({ cards }) => {
-  state.yourCards = cards || [];
-  state.pickH = new Set();
-  state.pickP = new Set();
-  renderHand(state.yourCards);
-  renderPickBoxes();
-  show(selecting);
-});
-
-socket.on("results", (payload) => {
-  renderBoard("finalBoard", payload.board || []);
-
-  const winnersDiv = el("winners");
-  const nameOf = (sid) => payload.picks[sid]?.name || sid;
-  const holdemNames = (payload.winners?.holdem || []).map(nameOf).join(", ");
-  const ploNames = (payload.winners?.plo || []).map(nameOf).join(", ");
-  const scoopNames = (payload.scoops || []).map(nameOf).join(", ");
-
-  let html = "";
-  html += `<p><strong>Hold’em:</strong> ${escapeHtml(holdemNames || "-")}</p>`;
-  html += `<p><strong>PLO:</strong> ${escapeHtml(ploNames || "-")}</p>`;
-  if (payload.scoops && payload.scoops.length) {
-    html += `<p>💥 SCOOP by ${escapeHtml(scoopNames)}</p>`;
-  }
-  winnersDiv.innerHTML = html;
-
-  show(results);
-});
+/* ==== Small screens ======================================================= */
+@media (max-width: 560px) {
+  .card { padding: 14px; }
+  .cardchip { width: 74px; height: 104px; }
+  .cardsvg { width: 70px; height: 100px; }
+  .rank { font-size: 24px; }
+  .rank.small { font-size: 20px; }
+  .suit { font-size: 38px; }
+  .pickBox { min-height: 120px; }
+}
