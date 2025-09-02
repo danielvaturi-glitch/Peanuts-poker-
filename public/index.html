@@ -1,38 +1,55 @@
 <!doctype html>
-<html>
+<html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta charset="utf-8" />
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1, viewport-fit=cover"
+  />
   <title>Peanuts Poker</title>
-  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/styles.css?v=2" />
 </head>
 <body>
   <div id="app">
     <div class="card">
       <h1>Peanuts Poker</h1>
-      <div id="intro">
-        <p>Enter a room code to join (3–8 letters/numbers). Share the same code with friends (max 6 per room).</p>
-        <label>Room Code</label>
-        <input id="room" placeholder="e.g., PEANUTS">
-        <label>Your Name</label>
-        <input id="name" placeholder="e.g., Daniel">
-        <button id="joinBtn">Join</button>
-      </div>
 
-      <div id="lobby" class="hidden">
-        <div id="players"></div>
+      <!-- Intro / Join -->
+      <div id="intro">
+        <p>
+          Enter a room code to join (3–8 letters/numbers). Share the same code with friends (max 6 per room).
+        </p>
         <div class="row">
-          <label>Ante:</label>
-          <input id="anteInput" type="number" min="0" step="1">
-          <button id="setAnte" class="secondary">Set Ante</button>
-          <button id="startBtn">Start Hand</button>
+          <label for="room">Room Code</label>
+          <input id="room" placeholder="e.g., PEANUTS" autocomplete="off" />
+        </div>
+        <div class="row">
+          <label for="name">Your Name</label>
+          <input id="name" placeholder="e.g., Daniel" autocomplete="off" />
+        </div>
+        <div class="row">
+          <button id="joinBtn">Join</button>
         </div>
       </div>
 
+      <!-- Lobby -->
+      <div id="lobby" class="hidden">
+        <h2>Lobby</h2>
+        <div id="players"></div>
+        <div class="row">
+          <label for="anteInput">Ante:</label>
+          <input id="anteInput" type="number" min="0" step="1" />
+          <button id="setAnte" class="secondary" title="Host only">Set Ante</button>
+          <button id="startBtn" title="Host only">Start Hand</button>
+        </div>
+      </div>
+
+      <!-- Selecting -->
       <div id="selecting" class="hidden">
         <h2>Select Your Cards</h2>
         <div class="board" id="yourHand"></div>
-        <div class="row">
+
+        <div class="row" style="align-items:flex-start;">
           <div>
             <h3>Hold’em (pick 2)</h3>
             <div id="pickHoldem" class="pickBox"></div>
@@ -42,24 +59,40 @@
             <div id="pickPLO" class="pickBox"></div>
           </div>
         </div>
+
         <button id="lockBtn">Lock Selections</button>
       </div>
 
+      <!-- Revealed board -->
       <div id="revealed" class="hidden">
         <h2>Board</h2>
         <div class="board" id="board"></div>
       </div>
 
+      <!-- Results -->
       <div id="results" class="hidden">
         <h2>Results</h2>
         <div class="board" id="finalBoard"></div>
         <div id="winners"></div>
-        <div id="picks"></div>
-        <button id="nextBtn">Next Hand</button>
+        <div class="row">
+          <button id="nextBtn" title="Host only">Next Hand</button>
+        </div>
+      </div>
+
+      <!-- (Optional) Chat container reserved; safe to leave present/hidden -->
+      <div id="chat" class="hidden">
+        <h3>Room Chat</h3>
+        <div id="chatLog" class="chatlog"></div>
+        <div class="row">
+          <input id="chatInput" placeholder="Type a message…" />
+          <button id="chatSend">Send</button>
+        </div>
       </div>
     </div>
   </div>
+
+  <!-- Socket.IO client must load before client.js -->
   <script src="/socket.io/socket.io.js"></script>
-  <script src="/client.js"></script>
+  <script src="/client.js?v=2"></script>
 </body>
 </html>
