@@ -1,8 +1,16 @@
-/ public/client.js
-// Client-side logic for Peanuts Poker (Hold'em + PLO) with SVG card faces
+// public/client.js
+// Client-side logic for Peanuts Poker (Hold'em + PLO) with SVG card faces + robust join
 
 /* ------------------ Socket ------------------ */
 const socket = io();
+
+// Connection diagnostics (helps when "Join" seems to do nothing)
+socket.on("connect", () => console.log("[socket] connected:", socket.id));
+socket.on("connect_error", (err) => {
+  console.error("[socket] connect_error:", err);
+  alert("Could not connect to the server. Please refresh the page.");
+});
+socket.on("disconnect", (reason) => console.warn("[socket] disconnected:", reason));
 
 /* ------------------ DOM helpers ------------------ */
 const el = (id) => document.getElementById(id);
@@ -85,7 +93,7 @@ const state = {
 function renderPlayers(players) {
   const c = el("players");
   c.innerHTML = "";
-  players.forEach((p) => {
+  (players || []).forEach((p) => {
     const row = document.createElement("div");
     row.className = "playerRow";
     const bal = Number(p.balance || 0);
@@ -147,27 +155,76 @@ function toggleSelection(card) {
   renderPickBoxes();
 }
 
+/* ------------------ Helper: validate inputs ------------------ */
+function normRoom(code) {
+  return (code || "").toUpperCase().trim();
+}
+function isValidRoom(code) {
+  return /^[A-Z0-9]{3,8}$/.test(code);
+}
+
 /* ------------------ UI events ------------------ */
 el("joinBtn").onclick = () => {
-  const roomCode = el("room").value;
-  const name = el("name").value;
+  const roomRaw = el("room").value;
+  const nameRaw = el("name").value;
+
+  const roomCode = normRoom(roomRaw);
+  const name = (nameRaw || "Player").trim();
+
+  if (!isValidRoom(roomCode)) {
+    alert("Room code must be 3–8 letters/numbers.");
+    el("room").focus();
+    return;
+  }
+  if (!name) {
+    alert("Please enter your name.");
+    el("name").focus();
+    return;
+  }
+
+  // Disable the Join button briefly to prevent double clicks
+  const joinBtn = el("joinBtn");
+  joinBtn.disabled = true;
+  joinBtn.textContent = "Joining…";
+
+  let responded = false;
   socket.emit("joinRoom", { roomCode, name }, (res) => {
-    if (!res?.ok) return alert(res?.error || "Failed to join.");
+    responded = true;
+    joinBtn.disabled = false;
+    joinBtn.textContent = "Join";
+
+    if (!res?.ok) {
+      console.warn("[joinRoom] error:", res);
+      alert(res?.error || "Failed to join room.");
+      return;
+    }
+
     state.room = roomCode;
     state.you = res.name;
     state.isHost = !!res.isHost;
+    console.log(`[joinRoom] joined ${roomCode} as ${res.name}, host=${state.isHost}`);
     show(lobby);
   });
+
+  // Safety net: if callback never comes back (e.g. connection issue)
+  setTimeout(() => {
+    if (!responded) {
+      joinBtn.disabled = false;
+      joinBtn.textContent = "Join";
+      alert("Join request timed out. Please check your connection and try again.");
+    }
+  }, 8000);
 };
 
 el("setAnte").onclick = () => {
-  if (!state.isHost) return;
+  if (!state.isHost) return alert("Only the host can set the ante.");
   const anteVal = Number(el("anteInput").value) || 0;
   socket.emit("setAnte", anteVal);
 };
 
 el("startBtn").onclick = () => {
-  if (state.isHost) socket.emit("startHand");
+  if (!state.isHost) return alert("Only the host can start the hand.");
+  socket.emit("startHand");
 };
 
 el("lockBtn").onclick = () => {
@@ -183,7 +240,8 @@ el("lockBtn").onclick = () => {
 };
 
 el("nextBtn").onclick = () => {
-  if (state.isHost) socket.emit("nextHand");
+  if (!state.isHost) return alert("Only the host can start the next hand.");
+  socket.emit("nextHand");
 };
 
 /* ------------------ Socket events ------------------ */
