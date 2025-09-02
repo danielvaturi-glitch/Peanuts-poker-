@@ -1,0 +1,65 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Peanuts Poker</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div id="app">
+    <div class="card">
+      <h1>Peanuts Poker</h1>
+      <div id="intro">
+        <p>Enter a room code to join (3–8 letters/numbers). Share the same code with friends (max 6 per room).</p>
+        <label>Room Code</label>
+        <input id="room" placeholder="e.g., PEANUTS">
+        <label>Your Name</label>
+        <input id="name" placeholder="e.g., Daniel">
+        <button id="joinBtn">Join</button>
+      </div>
+
+      <div id="lobby" class="hidden">
+        <div id="players"></div>
+        <div class="row">
+          <label>Ante:</label>
+          <input id="anteInput" type="number" min="0" step="1">
+          <button id="setAnte" class="secondary">Set Ante</button>
+          <button id="startBtn">Start Hand</button>
+        </div>
+      </div>
+
+      <div id="selecting" class="hidden">
+        <h2>Select Your Cards</h2>
+        <div class="board" id="yourHand"></div>
+        <div class="row">
+          <div>
+            <h3>Hold’em (pick 2)</h3>
+            <div id="pickHoldem" class="pickBox"></div>
+          </div>
+          <div>
+            <h3>PLO (pick 4)</h3>
+            <div id="pickPLO" class="pickBox"></div>
+          </div>
+        </div>
+        <button id="lockBtn">Lock Selections</button>
+      </div>
+
+      <div id="revealed" class="hidden">
+        <h2>Board</h2>
+        <div class="board" id="board"></div>
+      </div>
+
+      <div id="results" class="hidden">
+        <h2>Results</h2>
+        <div class="board" id="finalBoard"></div>
+        <div id="winners"></div>
+        <div id="picks"></div>
+        <button id="nextBtn">Next Hand</button>
+      </div>
+    </div>
+  </div>
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/client.js"></script>
+</body>
+</html>
