@@ -94,4 +94,242 @@ function eval5(cards) {
 }
 
 function cmp5(a,b){
-  for(let
+  for(let i=0;i<Math.max(a.length,b.length);i++){
+    const av=a[i]||0,bv=b[i]||0;
+    if (av!==bv) return av>bv?1:-1;
+  }
+  return 0;
+}
+
+function bestOfN(cards){
+  let best=null, score=null;
+  const n=cards.length;
+  for(let a=0;a<n-4;a++)
+    for(let b=a+1;b<n-3;b++)
+      for(let c=a+2;c<n-2;c++)
+        for(let d=a+3;d<n-1;d++)
+          for(let e=a+4;e<n;e++){
+            const hand=[cards[a],cards[b],cards[c],cards[d],cards[e]];
+            const s=eval5(hand);
+            if(!score || cmp5(s,score)>0){ score=s; best=hand; }
+          }
+  return {hand:best,score};
+}
+
+const evalHoldem = (hole, board) => bestOfN(hole.concat(board)).score;
+
+function evalPLO(hole4, board){
+  const choose2 = a => { const r=[]; for(let i=0;i<a.length;i++) for(let j=i+1;j<a.length;j++) r.push([a[i],a[j]]); return r; };
+  const choose3 = a => { const r=[]; for(let i=0;i<a.length;i++) for(let j=i+1;j<a.length;j++) for(let k=j+1;k<a.length;k++) r.push([a[i],a[j],a[k]]); return r; };
+  let best=null;
+  for (const h of choose2(hole4))
+    for (const b of choose3(board)){
+      const s = eval5(h.concat(b));
+      if (!best || cmp5(s,best)>0) best=s;
+    }
+  return best;
+}
+
+// -------------------- Rooms --------------------
+const rooms = new Map();
+
+function getRoom(code){
+  if (!rooms.has(code)){
+    rooms.set(code, {
+      players: new Map(),         // socketId -> { name }
+      hostId: null,               // socketId of host
+      stage: 'lobby',             // lobby | selecting | revealed | results
+      deck: [],
+      board: [],
+      ante: 0,
+      handNumber: 0,
+      balances: new Map(),        // socketId -> number
+      holes: {}                   // socketId -> { hole:[6], pickHoldem:[2], pickPLO:[4], locked:bool }
+    });
+  }
+  return rooms.get(code);
+}
+
+function publicState(room){
+  const players=[];
+  for (const [sid,p] of room.players.entries()){
+    players.push({
+      id: sid,
+      name: p.name,
+      isHost: room.hostId===sid,
+      balance: room.balances.get(sid)||0,
+      locked: room.holes[sid]?.locked || false
+    });
+  }
+  return {
+    stage: room.stage,
+    players,
+    board: (room.stage==='revealed' || room.stage==='results') ? room.board : [],
+    ante: room.ante,
+    handNumber: room.handNumber
+  };
+}
+
+// -------------------- Socket Events --------------------
+io.on('connection',(socket)=>{
+
+  socket.on('joinRoom', ({roomCode,name}, cb)=>{
+    const code = (roomCode||'').trim().toUpperCase();
+    if (!/^[A-Z0-9]{3,8}$/.test(code)) return cb({ok:false, error:'Invalid room code'});
+    const room = getRoom(code);
+    if (room.players.size >= MAX_PLAYERS) return cb({ok:false, error:'Room full'});
+
+    // unique name within room
+    let finalName = (name||'Player').trim() || 'Player';
+    const names = new Set([...room.players.values()].map(p=>p.name));
+    let suffix=1, candidate=finalName;
+    while (names.has(candidate)) { candidate = `${finalName} ${suffix++}`; }
+    finalName = candidate;
+
+    room.players.set(socket.id, { name: finalName });
+    if (!room.hostId) room.hostId = socket.id;
+    if (!room.balances.has(socket.id)) room.balances.set(socket.id, 0);
+    room.holes[socket.id] = null;
+
+    socket.join(code);
+    socket.data.roomCode = code;
+    socket.data.name = finalName;
+
+    io.to(code).emit('roomUpdate', publicState(room));
+    cb({ok:true, name: finalName, isHost: room.hostId===socket.id});
+  });
+
+  socket.on('setAnte', (ante)=>{
+    const code = socket.data.roomCode; if(!code) return;
+    const room = getRoom(code);
+    if (room.hostId !== socket.id) return;
+    room.ante = Math.max(0, Number(ante)||0);
+    io.to(code).emit('roomUpdate', publicState(room));
+  });
+
+  socket.on('startHand', ()=>{
+    const code = socket.data.roomCode; if(!code) return;
+    const room = getRoom(code);
+    if (room.hostId !== socket.id) return;
+    if (room.players.size < 2) return;
+
+    room.deck = newDeck();
+    room.board = [];
+    room.stage = 'selecting';
+    room.handNumber += 1;
+
+    for (const [sid] of room.players){
+      const hole = [room.deck.pop(),room.deck.pop(),room.deck.pop(),room.deck.pop(),room.deck.pop(),room.deck.pop()];
+      room.holes[sid] = { hole, pickHoldem: [], pickPLO: [], locked: false };
+      room.balances.set(sid, (room.balances.get(sid)||0) - room.ante);
+      io.to(sid).emit('yourCards', { cards: hole });
+    }
+
+    io.to(code).emit('roomUpdate', publicState(room));
+  });
+
+  socket.on('makeSelections', ({holdemTwo, ploFour}, cb)=>{
+    const code = socket.data.roomCode; if(!code) return cb && cb({ok:false, error:'No room'});
+    const room = getRoom(code);
+    const h = room.holes[socket.id];
+    if (!h) return cb && cb({ok:false, error:'No cards dealt'});
+
+    const set = new Set(h.hole);
+    if ((holdemTwo||[]).length !== 2 || (ploFour||[]).length !== 4)
+      return cb && cb({ok:false, error:'Need 2 Hold’em + 4 PLO'});
+    for (const c of [...holdemTwo, ...ploFour]){
+      if (!set.has(c)) return cb && cb({ok:false, error:'Invalid card'});
+    }
+
+    h.pickHoldem = [...holdemTwo];
+    h.pickPLO = [...ploFour];
+    h.locked = true;
+
+    io.to(code).emit('roomUpdate', publicState(room));
+
+    // if all locked, deal & score
+    const allLocked = [...room.players.keys()].every(sid => room.holes[sid]?.locked);
+    if (allLocked){
+      room.board = [room.deck.pop(),room.deck.pop(),room.deck.pop(),room.deck.pop(),room.deck.pop()];
+      room.stage = 'revealed';
+      io.to(code).emit('roomUpdate', publicState(room));
+
+      setTimeout(()=>{
+        const scoresH = [];
+        const scoresP = [];
+
+        for (const [sid] of room.players){
+          scoresH.push({sid, score: evalHoldem(room.holes[sid].pickHoldem, room.board)});
+          scoresP.push({sid, score: evalPLO(room.holes[sid].pickPLO, room.board)});
+        }
+
+        scoresH.sort((a,b)=>cmp5(b.score,a.score));
+        scoresP.sort((a,b)=>cmp5(b.score,a.score));
+
+        const topH = scoresH.filter(x=>cmp5(x.score,scoresH[0].score)===0).map(x=>x.sid);
+        const topP = scoresP.filter(x=>cmp5(x.score,scoresP[0].score)===0).map(x=>x.sid);
+
+        const pot = room.ante * room.players.size;
+        const heShare = (pot/2) / topH.length;
+        const ploShare = (pot/2) / topP.length;
+
+        for (const sid of topH) room.balances.set(sid, (room.balances.get(sid)||0) + heShare);
+        for (const sid of topP) room.balances.set(sid, (room.balances.get(sid)||0) + ploShare);
+
+        const scoops = (topH.length===1 && topP.length===1 && topH[0]===topP[0]) ? [topH[0]] : [];
+
+        io.to(code).emit('results', {
+          board: room.board,
+          winners: { holdem: topH, plo: topP },
+          scoops,
+          picks: Object.fromEntries(
+            Object.entries(room.holes).map(([sid,d])=>[
+              sid,
+              { name: room.players.get(sid).name, holdem: d.pickHoldem, plo: d.pickPLO, hole: d.hole }
+            ])
+          )
+        });
+
+        room.stage = 'results';
+        io.to(code).emit('roomUpdate', publicState(room));
+      }, 800);
+    }
+
+    cb && cb({ok:true});
+  });
+
+  socket.on('nextHand', ()=>{
+    const code = socket.data.roomCode; if(!code) return;
+    const room = getRoom(code);
+    if (room.hostId !== socket.id) return;
+
+    room.stage = 'lobby';
+    room.board = [];
+    room.deck = [];
+    room.holes = {};
+
+    io.to(code).emit('roomUpdate', publicState(room));
+  });
+
+  socket.on('disconnect', ()=>{
+    const code = socket.data.roomCode; if(!code) return;
+    const room = getRoom(code);
+    if (!room.players.has(socket.id)) return;
+
+    room.players.delete(socket.id);
+    room.balances.delete(socket.id);
+    delete room.holes[socket.id];
+
+    if (room.hostId === socket.id){
+      const next = room.players.keys().next();
+      room.hostId = next.done ? null : next.value;
+    }
+
+    if (room.players.size === 0) {
+      rooms.delete(code);
+    } else {
+      io.to(code).emit('roomUpdate', publicState(room));
+    }
+  });
+
+});
