@@ -1,4 +1,4 @@
-// public/client.js — shows locked hands on Results & marks river winners as 100%.
+// public/client.js — persistent totals + final summary + robust card delivery per hand
 
 const socket = io();
 socket.on("connect", ()=>console.log("[socket] connected", socket.id));
@@ -49,8 +49,8 @@ const state={
   yourCards:[], pickH:new Set(), pickP:new Set(),
   picksByPlayer:{},            // revealed/streets
   finalPicksByPlayer:{},       // results table
-  equities:{ he:{}, plo:{} },  // for revealed table
-  finalEquities:{ he:{}, plo:{} }, // for results table (river: winners=100)
+  equities:{ he:{}, plo:{} },  // revealed
+  finalEquities:{ he:{}, plo:{} }, // results (river winners 100)
   board:[],
   stage:'lobby',
   selectionRemainingMs:0
@@ -59,7 +59,8 @@ const state={
 /* Rendering */
 function renderPlayers(players=[]){
   window._playersCache = players;
-  const c=el("players"); c.innerHTML='';
+  const c=el("players"); if(!c) return;
+  c.innerHTML='';
   players.forEach(p=>{
     const row=document.createElement('div'); row.className='playerRow';
     const bal=Number(p.balance||0), balStr=(bal>=0?'+':'')+bal.toFixed(2);
@@ -192,7 +193,7 @@ if(termBtn) termBtn.onclick = ()=>{ if(confirm('Terminate table?')) socket.emit(
 
 if(revealBtn){ revealBtn.onclick = ()=> socket.emit('revealNextStreet'); }
 
-// Auto-rejoin
+// Auto-rejoin on load
 window.addEventListener('load', ()=>{
   const { token, room } = getIdentity();
   if(token && room && isValidRoom(room)){
@@ -231,8 +232,12 @@ socket.on('roomUpdate', data=>{
   const sitBtn=el("sitBtn");
   if(sitBtn){ const s=!!me?.sitOut; sitBtn.textContent=s?'Return to Play':'Sit Out'; sitBtn.setAttribute('data-on', s?'1':'0'); }
 
-  if (data.stage==='selecting') { startCountdown(); show(selecting); }
-  else { stopCountdown(); }
+  if (data.stage==='selecting') {
+    // Ask server to resend our cards if needed (safety net)
+    socket.emit('requestYourCards');
+    startCountdown();
+    show(selecting);
+  } else { stopCountdown(); }
 
   if (data.stage==='revealed' || data.stage==='results') {
     renderBoard('board', state.board);
@@ -268,7 +273,7 @@ socket.on('yourCards', ({cards})=>{
   renderHand(state.yourCards); renderPickBoxes(); show(selecting);
 });
 
-// RESULTS — keep hands until Next Hand, and show 100% winners at river
+// RESULTS — keep hands; winners show 100%; update balances immediately
 socket.on('results', payload=>{
   // final picks for results grid
   const finalMap={};
@@ -277,7 +282,7 @@ socket.on('results', payload=>{
   }
   state.finalPicksByPlayer = finalMap;
 
-  // compute final equities = 100% for winners (ties: all winners 100)
+  // final equities = 100% for winners (ties => all winners 100)
   const heWinners = new Set(payload.winners?.holdem || []);
   const ploWinners = new Set(payload.winners?.plo || []);
   const heEq={}, ploEq={};
@@ -286,6 +291,14 @@ socket.on('results', payload=>{
     ploEq[pid] = { win: ploWinners.has(pid) ? 100 : 0, tie: 0 };
   });
   state.finalEquities = { he: heEq, plo: ploEq };
+
+  // Refresh player balances right now (so lobby shows correct totals next hand)
+  if (Array.isArray(payload.players) && payload.players.length) {
+    window._playersCache = payload.players.map(p => ({
+      id: p.id, name: p.name, balance: Number(p.balance || 0)
+    }));
+    renderPlayers(window._playersCache);
+  }
 
   renderBoard('finalBoard', payload.board||[]);
 
@@ -308,17 +321,32 @@ socket.on('results', payload=>{
   updateRevealUI();
 });
 
-socket.on('finalResults', ({handNumber, ante, players})=>{
+// FINAL RESULTS (on termination): balances + stats summary
+socket.on('finalResults', ({room, handNumber, ante, players})=>{
   finalTable.innerHTML='';
+
+  // Header
+  const title = el("finalTitle");
+  if(title) title.textContent = `Final Results — ${room||''} • Hands: ${handNumber||0} • Ante: ${ante||0}`;
+
+  // Table header
   const hdr=document.createElement('div'); hdr.className='finalRow finalHeader';
-  hdr.innerHTML='<div>Player</div><div class="mono">Balance</div>'; finalTable.appendChild(hdr);
+  hdr.innerHTML='<div>Player</div><div class="mono">Balance</div><div class="mono">HE Wins</div><div class="mono">PLO Wins</div><div class="mono">Scoops</div><div class="mono">Hands</div>';
+  finalTable.appendChild(hdr);
+
   players.forEach(p=>{
     const row=document.createElement('div'); row.className='finalRow';
     const bal=(p.balance>=0?'+':'')+Number(p.balance||0).toFixed(2);
-    row.innerHTML=`<div>${escapeHtml(p.name)}</div><div class="mono ${p.balance>=0?'positive':'negative'}">${bal}</div>`;
+    row.innerHTML=
+      `<div>${escapeHtml(p.name)}</div>
+       <div class="mono ${p.balance>=0?'positive':'negative'}">${bal}</div>
+       <div class="mono">${p.stats?.winsHE||0}</div>
+       <div class="mono">${p.stats?.winsPLO||0}</div>
+       <div class="mono">${p.stats?.scoops||0}</div>
+       <div class="mono">${p.stats?.handsPlayed||0}</div>`;
     finalTable.appendChild(row);
   });
-  el("finalTitle").textContent=`Final Results — ${getIdentity().room||''} (Hands: ${handNumber||0})`;
+
   finalModal.classList.add('show');
 });
 socket.on('terminated', ()=>{ clearIdentity(); });
