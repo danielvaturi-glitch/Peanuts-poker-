@@ -4,7 +4,7 @@
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
   <title>Peanuts Poker</title>
-  <link rel="stylesheet" href="/styles.css?v=13"/>
+  <link rel="stylesheet" href="/styles.css?v=14"/>
   <style>
     .tableGrid { display:grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap:12px; margin-top:12px; }
     .seat { border:1px solid #2b4f77; border-radius:12px; padding:10px; background:rgba(10,21,34,0.6); }
@@ -13,6 +13,7 @@
     .handRow .label { width:54px; opacity:.8; }
     .eq { font-weight:700; margin-left:auto; white-space:nowrap; }
     .revealBar { display:flex; gap:8px; align-items:center; margin-top:10px; }
+    .toprow { display:flex; gap:8px; align-items:center; justify-content:space-between; }
   </style>
 </head>
 <body>
@@ -44,12 +45,22 @@
 
       <!-- Lobby -->
       <div id="lobby" class="hidden">
-        <h2>Lobby</h2>
+        <div class="toprow">
+          <h2>Lobby</h2>
+          <button class="secondary" id="backToIntro">Leave Room</button>
+        </div>
         <div id="players"></div>
         <div class="row">
           <label for="anteInput">Ante:</label>
           <input id="anteInput" type="number" min="0" step="1"/>
           <button id="setAnte" class="secondary">Set Ante</button>
+        </div>
+        <div class="row">
+          <label for="timerInput">Selection Timer (sec):</label>
+          <input id="timerInput" type="number" min="5" max="180" step="1"/>
+          <button id="setTimer" class="secondary">Set Timer</button>
+        </div>
+        <div class="row">
           <button id="startBtn">Start Hand</button>
           <button id="sitBtn" data-on="0" class="secondary">Sit Out</button>
           <button id="terminateBtn" class="danger" title="Host only">Terminate Table</button>
@@ -58,7 +69,13 @@
 
       <!-- Selecting -->
       <div id="selecting" class="hidden">
-        <h2>Select Your Cards</h2>
+        <div class="toprow">
+          <h2>Select Your Cards</h2>
+          <button class="secondary" id="toLobby1">Back to Lobby</button>
+        </div>
+        <div class="row mono" id="countdownRow" style="gap:8px;">
+          <span>Time left:</span><span id="countdown">--</span>
+        </div>
         <div class="board" id="yourHand"></div>
 
         <div class="row" style="align-items:flex-start;">
@@ -71,12 +88,20 @@
             <div id="pickPLO" class="pickBox"></div>
           </div>
         </div>
-        <button id="lockBtn">Lock Selections</button>
+        <div class="row">
+          <button id="lockBtn">Lock Selections</button>
+        </div>
+
+        <h3>Lock Status</h3>
+        <div id="lockStatus"></div>
       </div>
 
-      <!-- Revealed (table view, manual reveals) -->
+      <!-- Revealed -->
       <div id="revealed" class="hidden">
-        <h2>Board</h2>
+        <div class="toprow">
+          <h2>Board</h2>
+          <button class="secondary" id="toLobby2">Back to Lobby</button>
+        </div>
         <div class="board" id="board"></div>
         <div class="revealBar">
           <button id="revealBtn">Reveal Flop</button>
@@ -86,9 +111,12 @@
         <div id="tableGrid" class="tableGrid"></div>
       </div>
 
-      <!-- Results (persists until Next Hand) -->
+      <!-- Results -->
       <div id="results" class="hidden">
-        <h2>Results</h2>
+        <div class="toprow">
+          <h2>Results</h2>
+          <button class="secondary" id="toLobby3">Back to Lobby</button>
+        </div>
         <div class="board" id="finalBoard"></div>
         <div id="winners"></div>
         <div class="row">
@@ -131,6 +159,6 @@
   </div>
 
   <script src="/socket.io/socket.io.js"></script>
-  <script src="/client.js?v=13"></script>
+  <script src="/client.js?v=14"></script>
 </body>
 </html>
