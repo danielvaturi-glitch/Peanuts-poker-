@@ -2,9 +2,9 @@
 <html lang="en">
 <head>
   <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
   <title>Peanuts Poker</title>
-  <link rel="stylesheet" href="/styles.css?v=9"/>
+  <link rel="stylesheet" href="/styles.css?v=10"/>
 </head>
 <body>
   <div id="app">
@@ -17,35 +17,8 @@
 
       <h1>Peanuts Poker</h1>
 
-      <!-- Intro / Auth / Join -->
+      <!-- Intro / Join -->
       <div id="intro">
-        <div class="authRow">
-          <div class="authCol">
-            <h3>Login</h3>
-            <input id="loginUser" placeholder="Username"/>
-            <input id="loginPass" placeholder="Password" type="password"/>
-            <button id="loginBtn">Login</button>
-          </div>
-          <div class="authCol">
-            <h3>Register</h3>
-            <input id="regUser" placeholder="Username"/>
-            <input id="regPass" placeholder="Password" type="password"/>
-            <button id="regBtn">Create Account</button>
-          </div>
-          <div class="authCol">
-            <h3>Your Lifetime Results</h3>
-            <div id="ltStats">
-              <div>Hands Played: <span id="sHands">0</span></div>
-              <div>Total Net: <span id="sNet" class="mono">0</span></div>
-              <div>Scoops: <span id="sScoops">0</span></div>
-              <div>Hold’em Wins: <span id="sHE">0</span></div>
-              <div>PLO Wins: <span id="sPLO">0</span></div>
-            </div>
-          </div>
-        </div>
-
-        <hr/>
-
         <p>Enter a room code to join (3–8 letters/numbers). Share the same code with friends (max 6 per room).</p>
         <div class="row">
           <label for="room">Room Code</label>
@@ -57,7 +30,6 @@
         </div>
         <div class="row">
           <button id="joinBtn">Join</button>
-          <button id="logoutBtn" class="secondary">Logout</button>
         </div>
       </div>
 
@@ -93,7 +65,7 @@
         <button id="lockBtn">Lock Selections</button>
       </div>
 
-      <!-- Revealed board -->
+      <!-- Revealed -->
       <div id="revealed" class="hidden">
         <h2>Board</h2>
         <div class="board" id="board"></div>
@@ -126,10 +98,11 @@
           <button id="chatSend">Send</button>
         </div>
       </div>
+
     </div>
   </div>
 
-  <!-- Fireworks Overlay for SCOOP -->
+  <!-- Fireworks Overlay -->
   <div id="scoopOverlay" class="overlay">
     <div class="fireworks">
       <div class="burst b1"></div>
@@ -151,6 +124,6 @@
   </div>
 
   <script src="/socket.io/socket.io.js"></script>
-  <script src="/client.js?v=9"></script>
+  <script src="/client.js?v=10"></script>
 </body>
 </html>
