@@ -1,4 +1,5 @@
-// public/client.js — Manual street reveals. Table view with equities under HE & PLO hands.
+// public/client.js — Cards rendering fixed, back-to-lobby buttons, selection countdown & auto-lock UI.
+// Manual street reveals with live equities; results persist until Next Hand.
 
 const socket = io();
 socket.on("connect", ()=>console.log("[socket] connected", socket.id));
@@ -11,6 +12,7 @@ const chatBox=el("chat"), chatLog=el("chatLog"), chatInput=el("chatInput");
 const handBadge=el("handBadge"), roomBadge=el("roomBadge"), scoopOverlay=el("scoopOverlay");
 const finalModal=el("finalModal"), finalTable=el("finalTable");
 const revealBtn=el("revealBtn"), revealHint=el("revealHint");
+const countdownEl=el("countdown"), lockStatus=el("lockStatus");
 
 function show(v){ [intro,lobby,selecting,revealed,results].forEach(x=>x.classList.add("hidden")); v.classList.remove("hidden"); chatBox.classList.remove("hidden"); }
 function escapeHtml(s){ return (s||"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[m])); }
@@ -21,8 +23,9 @@ function saveIdentity(token, room){ try{ localStorage.setItem(LS_TOKEN_KEY, toke
 function clearIdentity(){ try{ localStorage.removeItem(LS_TOKEN_KEY); localStorage.removeItem(LS_ROOM_KEY);}catch{} }
 function getIdentity(){ try{ return { token:localStorage.getItem(LS_TOKEN_KEY), room:localStorage.getItem(LS_ROOM_KEY) }; }catch{ return {}; } }
 
-/* Cards */
+/* Cards (SVG) */
 function cardChip(card){
+  if(!card) return document.createElement('div');
   const r=card[0]?.toUpperCase(), s=card[1]?.toLowerCase();
   const rp=(r==='T'?'10':r), sym=({c:'♣',d:'♦',h:'♥',s:'♠'}[s]||'?'); const red=(s==='h'||s==='d');
   const svg=`
@@ -48,7 +51,8 @@ const state={
   picksByPlayer:{},
   equities:{ he:{}, plo:{} },
   board:[],
-  stage:'lobby'
+  stage:'lobby',
+  selectionRemainingMs:0
 };
 
 /* Rendering */
@@ -69,10 +73,21 @@ function renderPlayers(players=[]){
       <div class="${bal>=0?'positive':'negative'} mono">${balStr}</div>`;
     c.appendChild(row);
   });
+
+  // Lock status panel (during selecting)
+  if (lockStatus) {
+    lockStatus.innerHTML='';
+    players.forEach(p=>{
+      const item=document.createElement('div'); item.className='playerRow';
+      item.innerHTML = `<div>${escapeHtml(p.name)}</div><div>${p.locked?'<span class="badge">Locked</span>':'<span class="badge warn">Waiting</span>'}</div>`;
+      lockStatus.appendChild(item);
+    });
+  }
 }
 function renderBoard(id,cards){ const c=el(id); c.innerHTML=''; (cards||[]).forEach(x=>c.appendChild(cardChip(x))); }
 function renderHand(cards){
-  const c=el("yourHand"); c.innerHTML='';
+  const c=el("yourHand"); if(!c) return;
+  c.innerHTML='';
   (cards||[]).forEach(card=>{
     const chip=cardChip(card);
     chip.addEventListener('click',()=>toggleSelection(card));
@@ -81,7 +96,8 @@ function renderHand(cards){
   });
 }
 function renderPickBoxes(){
-  const h=el("pickHoldem"), p=el("pickPLO"); h.innerHTML=''; p.innerHTML='';
+  const h=el("pickHoldem"), p=el("pickPLO"); if(!h||!p) return;
+  h.innerHTML=''; p.innerHTML='';
   Array.from(state.pickH).forEach(c=>h.appendChild(cardChip(c)));
   Array.from(state.pickP).forEach(c=>p.appendChild(cardChip(c)));
 }
@@ -124,12 +140,12 @@ function updateRevealUI(){
   revealBtn.disabled = (state.stage!=='revealed');
   if(state.stage!=='revealed'){
     revealBtn.textContent = 'Reveal Flop';
-    revealHint.textContent = '';
+    if(revealHint) revealHint.textContent = '';
     return;
   }
-  if(n===0){ revealBtn.textContent='Reveal Flop'; revealHint.textContent=''; }
-  else if(n===3){ revealBtn.textContent='Reveal Turn'; revealHint.textContent=''; }
-  else if(n===4){ revealBtn.textContent='Reveal River'; revealHint.textContent=''; }
+  if(n===0){ revealBtn.textContent='Reveal Flop'; }
+  else if(n===3){ revealBtn.textContent='Reveal Turn'; }
+  else if(n===4){ revealBtn.textContent='Reveal River'; }
   else { revealBtn.textContent='Reveal'; revealBtn.disabled=true; }
 }
 
@@ -159,11 +175,18 @@ el("joinBtn").onclick = ()=>{
   });
 };
 
+/* Back-to-lobby view buttons (does not change server state) */
+const goLobby = ()=>show(lobby);
+["backToIntro","toLobby1","toLobby2","toLobby3"].forEach(id=>{
+  const b=el(id); if(b) b.onclick = goLobby;
+});
+
 el("sitBtn").onclick = ()=>{
   const btn=el("sitBtn"); const on=btn.getAttribute('data-on')==='1';
   socket.emit('toggleSitOut', !on);
 };
 el("setAnte").onclick = ()=>{ const v=Number(el("anteInput").value)||0; socket.emit('setAnte', v); };
+el("setTimer").onclick = ()=>{ const v=Number(el("timerInput").value)||30; socket.emit('setSelectionSeconds', v); };
 el("startBtn").onclick = ()=> socket.emit('startHand');
 el("nextBtn").onclick = ()=> socket.emit('nextHand');
 
@@ -171,10 +194,7 @@ const termBtn=document.getElementById('terminateBtn');
 if(termBtn) termBtn.onclick = ()=>{ if(confirm('Terminate table?')) socket.emit('terminateTable'); };
 
 if(revealBtn){
-  revealBtn.onclick = ()=>{
-    // send request to reveal the next street (flop -> turn -> river)
-    socket.emit('revealNextStreet');
-  };
+  revealBtn.onclick = ()=> socket.emit('revealNextStreet');
 }
 
 // Auto-rejoin
@@ -189,18 +209,39 @@ window.addEventListener('load', ()=>{
   } else show(intro);
 });
 
+/* Countdown (client display driven by server remainingMs) */
+let countdownTimer=null;
+function startCountdown(){
+  stopCountdown();
+  countdownTimer=setInterval(()=>{
+    const ms = Math.max(0, state.selectionRemainingMs||0);
+    const s = Math.ceil(ms/1000);
+    if(countdownEl) countdownEl.textContent = s+'s';
+  }, 200);
+}
+function stopCountdown(){ if(countdownTimer){ clearInterval(countdownTimer); countdownTimer=null; } }
+
 /* Socket events */
 socket.on('roomUpdate', data=>{
   state.stage = data.stage;
   state.board = data.board || [];
+  state.selectionRemainingMs = data.selectionRemainingMs || 0;
 
   setBadges(getIdentity().room, data.handNumber||0);
   renderPlayers(data.players);
   el("anteInput").value=data.ante||0;
+  el("timerInput").value=data.selectionSeconds||30;
 
   const me=(data.players||[]).find(p=>p.id===state.token);
   const sitBtn=el("sitBtn");
   if(sitBtn){ const s=!!me?.sitOut; sitBtn.textContent=s?'Return to Play':'Sit Out'; sitBtn.setAttribute('data-on', s?'1':'0'); }
+
+  if (data.stage==='selecting') {
+    startCountdown();
+    show(selecting);
+  } else {
+    stopCountdown();
+  }
 
   if (data.stage==='revealed' || data.stage==='results') {
     renderBoard('board', state.board);
@@ -209,12 +250,11 @@ socket.on('roomUpdate', data=>{
   }
 
   if(data.stage==='lobby') show(lobby);
-  else if(data.stage==='selecting') show(selecting);
   else if(data.stage==='revealed') show(revealed);
   else if(data.stage==='results') show(results);
 });
 
-// During preflop/flop/turn/river we get equities + all players' locked picks
+// Preflop & streets carry picks + equities
 socket.on('streetUpdate', payload=>{
   if (payload?.equities) state.equities = payload.equities;
   if (payload?.picks) {
@@ -238,7 +278,7 @@ socket.on('yourCards', ({cards})=>{
 });
 
 socket.on('results', payload=>{
-  // keep revealed table + board visible; also show results panel with final board & winners
+  // Keep revealed table visible; Results panel also visible until Next Hand
   renderBoard('finalBoard', payload.board||[]);
   const winnersDiv=el("winners");
   const nameOf=sid=>payload.picks[sid]?.name || sid;
@@ -253,9 +293,8 @@ socket.on('results', payload=>{
   }
   winnersDiv.innerHTML=html;
 
-  // We don't hide the revealed view; Results panel is visible and persists until Next Hand.
   show(results);
-  updateRevealUI(); // disables the reveal button post-river
+  updateRevealUI(); // disables reveal post-river
 });
 
 socket.on('finalResults', ({handNumber, ante, players})=>{
@@ -263,42 +302,4 @@ socket.on('finalResults', ({handNumber, ante, players})=>{
   const hdr=document.createElement('div'); hdr.className='finalRow finalHeader';
   hdr.innerHTML='<div>Player</div><div class="mono">Balance</div>'; finalTable.appendChild(hdr);
   players.forEach(p=>{
-    const row=document.createElement('div'); row.className='finalRow';
-    const bal=(p.balance>=0?'+':'')+Number(p.balance||0).toFixed(2);
-    row.innerHTML=`<div>${escapeHtml(p.name)}</div><div class="mono ${p.balance>=0?'positive':'negative'}">${bal}</div>`;
-    finalTable.appendChild(row);
-  });
-  el("finalTitle").textContent=`Final Results — ${getIdentity().room||''} (Hands: ${handNumber||0})`;
-  finalModal.classList.add('show');
-});
-socket.on('terminated', ()=>{ clearIdentity(); /* keep modal visible */ });
-
-/* Chat */
-socket.on('chatBacklog', (msgs=[])=>{ chatLog.innerHTML=''; msgs.forEach(addChatLine); });
-socket.on('chatMessage', msg=>addChatLine(msg));
-function addChatLine(msg){
-  const d=document.createElement('div'); d.className='chatmsg' + (msg.system?' system':'');
-  const who=msg.system?'🛈':escapeHtml(msg.from||'Unknown'); const text=escapeHtml(msg.text||'');
-  const time=new Date(msg.ts||Date.now()).toLocaleTimeString();
-  d.innerHTML=`<span class="who">${who}</span> <span class="t">${text}</span> <span class="mono" style="opacity:.6;float:right">${time}</span>`;
-  chatLog.appendChild(d); chatLog.scrollTop=chatLog.scrollHeight;
-}
-el("chatSend").onclick = ()=>sendChat();
-chatInput.addEventListener('keydown', e=>{ if(e.key==='Enter') sendChat(); });
-function sendChat(){ const t=(chatInput.value||'').trim(); if(!t) return; socket.emit('chatMessage', t); chatInput.value=''; }
-
-/* Fireworks */
-function launchScoopFireworks(name){
-  el("scoopTitle").textContent=`SCOOP by: ${name}!`;
-  scoopOverlay.classList.add('show');
-  setTimeout(()=>scoopOverlay.classList.remove('show'), 3500);
-}
-
-/* Lock / Next */
-el("lockBtn").onclick = ()=>{
-  if(state.pickH.size!==2 || state.pickP.size!==4) return alert("Pick 2 for Hold’em and 4 for PLO.");
-  socket.emit('makeSelections', { holdemTwo:Array.from(state.pickH), ploFour:Array.from(state.pickP) }, res=>{
-    if(!res?.ok) alert(res?.error||'Could not lock');
-  });
-};
-el("finalClose").onclick = ()=>{ finalModal.classList.remove('show'); show(intro); };
+    const row=document.create
