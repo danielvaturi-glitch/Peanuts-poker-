@@ -1,4 +1,4 @@
-// public/client.js — no auth/stats. Keeps sit-out, equities/outs, fireworks, final modal, chat.
+// public/client.js — Table view after locks. Shows all players' HE & PLO hands with win%.
 
 const socket = io();
 socket.on("connect", ()=>console.log("[socket] connected", socket.id));
@@ -41,11 +41,11 @@ function cardChip(card){
 }
 
 /* State */
-const state={ room:null, token:null, you:null, yourCards:[], pickH:new Set(), pickP:new Set() };
+const state={ room:null, token:null, you:null, yourCards:[], pickH:new Set(), pickP:new Set(), picksByPlayer:{}, equities:{he:{},plo:{}} };
 
 /* Rendering */
 function renderPlayers(players=[]){
-  window._playersCache = players; // for outs label lookups
+  window._playersCache = players;
   const c=el("players"); c.innerHTML='';
   players.forEach(p=>{
     const row=document.createElement('div'); row.className='playerRow';
@@ -77,28 +77,39 @@ function renderPickBoxes(){
   Array.from(state.pickH).forEach(c=>h.appendChild(cardChip(c)));
   Array.from(state.pickP).forEach(c=>p.appendChild(cardChip(c)));
 }
-function renderEquities(targetId, _label, eqMap, players){
-  const box=el(targetId); box.innerHTML=''; if(!eqMap) return;
+
+/* Table view */
+function renderTableView(){
+  const grid=el("tableGrid"); if(!grid) return;
+  grid.innerHTML='';
+  const players = window._playersCache || [];
   players.forEach(p=>{
-    const eq=eqMap[p.id]||{win:0,tie:0};
-    const row=document.createElement('div'); row.className='eqrow';
-    row.innerHTML=`<div class="name">${escapeHtml(p.name)}</div>
-                   <div class="val mono">${eq.win.toFixed(1)}% win &nbsp; ${eq.tie.toFixed(1)}% tie</div>`;
-    box.appendChild(row);
+    // skip seats that aren't in the current hand
+    const entry = state.picksByPlayer[p.id];
+    if(!entry) return;
+    const seatDiv=document.createElement('div'); seatDiv.className='seat';
+    const heEq = (state.equities.he?.[p.id]?.win ?? 0).toFixed(1);
+    const ploEq = (state.equities.plo?.[p.id]?.win ?? 0).toFixed(1);
+
+    // HE hand (2)
+    const heRow=document.createElement('div'); heRow.className='handRow';
+    heRow.innerHTML = `<div class="label">HE</div>`;
+    (entry.holdem||[]).forEach(c=>heRow.appendChild(cardChip(c)));
+    const hePct=document.createElement('div'); hePct.className='eq mono'; hePct.textContent = `${heEq}%`;
+    heRow.appendChild(hePct);
+
+    // PLO hand (4)
+    const ploRow=document.createElement('div'); ploRow.className='handRow';
+    ploRow.innerHTML = `<div class="label">PLO</div>`;
+    (entry.plo||[]).forEach(c=>ploRow.appendChild(cardChip(c)));
+    const ploPct=document.createElement('div'); ploPct.className='eq mono'; ploPct.textContent = `${ploEq}%`;
+    ploRow.appendChild(ploPct);
+
+    seatDiv.innerHTML = `<div class="pname">${escapeHtml(entry.name || p.name)}</div>`;
+    seatDiv.appendChild(heRow);
+    seatDiv.appendChild(ploRow);
+    grid.appendChild(seatDiv);
   });
-}
-function renderOuts(targetId, outMap){
-  const box=el(targetId); box.innerHTML=''; if(!outMap) return;
-  for(const [pid, arr] of Object.entries(outMap)){
-    const title=document.createElement('div');
-    const name=(window._playersCache||[]).find(p=>p.id===pid)?.name || pid;
-    title.textContent=`For ${name}:`;
-    const row=document.createElement('div'); row.className='outrow';
-    (arr||[]).slice(0,18).forEach(c=>{
-      const tag=document.createElement('span'); tag.className='outcard'; tag.textContent=c; row.appendChild(tag);
-    });
-    box.appendChild(title); box.appendChild(row);
-  }
 }
 
 /* Selection */
@@ -162,10 +173,8 @@ socket.on('roomUpdate', data=>{
 
   if (data.stage==='revealed' || data.stage==='results') {
     renderBoard('board', data.board||[]);
-    renderEquities('equitiesHE','Hold’em', data.equities?.he, data.players||[]);
-    renderEquities('equitiesPLO','PLO', data.equities?.plo, data.players||[]);
-    renderOuts('outsHE', data.outs?.he);
-    renderOuts('outsPLO', data.outs?.plo);
+    // When we have latest equities (set by streetUpdate), we also refresh seats in renderTableView
+    renderTableView();
   }
 
   if(data.stage==='lobby') show(lobby);
@@ -173,7 +182,21 @@ socket.on('roomUpdate', data=>{
   else if(data.stage==='revealed') show(revealed);
   else if(data.stage==='results') show(results);
 });
-socket.on('streetUpdate', _=>{}); // already handled via roomUpdate
+
+// During flop/turn/river we get equities + all players' locked picks
+socket.on('streetUpdate', payload=>{
+  if (payload?.equities) state.equities = payload.equities;
+  if (payload?.picks) {
+    const m={};
+    for(const [pid, info] of Object.entries(payload.picks)){
+      m[pid] = { name: info.name, holdem: info.holdem||[], plo: info.plo||[] };
+    }
+    state.picksByPlayer = m;
+  }
+  renderBoard('board', payload?.board||[]);
+  renderTableView();
+  show(revealed);
+});
 
 socket.on('yourCards', ({cards})=>{
   state.yourCards=cards||[]; state.pickH=new Set(); state.pickP=new Set();
