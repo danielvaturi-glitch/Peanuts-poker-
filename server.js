@@ -1,4 +1,4 @@
-// server.js — Peanuts Poker (fast streets + instant lock progress + robust sockets)
+// server.js — Peanuts Poker (fast streets + instant lock progress + river winners = 100% equities)
 
 const express = require('express');
 const http = require('http');
@@ -91,13 +91,11 @@ function monteCarloEquity(players, board, deck, game, iters=600){
   });
   return res;
 }
-
-// Choose smaller iteration counts on later streets for speed
 function itersFor(boardLen){
   if(boardLen<=0) return 600; // preflop
   if(boardLen===3) return 400; // flop
   if(boardLen===4) return 300; // turn
-  return 0; // river -> no equity calc (results are final)
+  return 0; // river -> we will mark winners as 100% deterministically
 }
 
 // -------- Rooms --------
@@ -184,20 +182,22 @@ function buildPicks(room){
   return p;
 }
 
-// fast recompute; avoids heavy CPU so sockets stay responsive
 function recomputeAndEmitFast(room, code, stageLabel){
   const boardLen = room.board.length;
   const itHE = itersFor(boardLen);
   const itPLO = itersFor(boardLen);
   const participants=[...room.holes.entries()].map(([tok,seat])=>({ id:tok, hole2:seat.pickHoldem, hole4:seat.pickPLO }));
-  if(itHE>0 || itPLO>0){
+
+  if(boardLen<5){
     const d = cardsLeft(room);
     const heEq = itHE>0 ? monteCarloEquity(participants.map(p=>({id:p.id,hole2:p.hole2})), room.board, d, 'he', itHE) : {};
     const ploEq = itPLO>0 ? monteCarloEquity(participants.map(p=>({id:p.id,hole4:p.hole4})), room.board, d, 'plo', itPLO) : {};
     room.equities={he:heEq, plo:ploEq};
   } else {
-    room.equities={he:{}, plo:{}}; // river -> not needed
+    // On river we will set 100% winners in scoreAndFinish().
+    room.equities={he:{}, plo:{}};
   }
+
   io.to(code).emit('roomUpdate', publicState(room));
   io.to(code).emit('streetUpdate', { stage:stageLabel, board:room.board, equities:room.equities, picks: buildPicks(room) });
 }
@@ -314,7 +314,7 @@ io.on('connection', socket => {
         const p=room.players.get(tok);
         const hole=[room.deck.pop(),room.deck.pop(),room.deck.pop(),room.deck.pop(),room.deck.pop(),room.deck.pop()];
         room.holes.set(tok,{ hole, pickHoldem:[], pickPLO:[], locked:false });
-        p.balance=(p.balance||0)-room.ante; // active seats pay ante
+        p.balance=(p.balance||0)-room.ante; // active seats pay ante; BALANCES ACCUMULATE ACROSS HANDS
       }
 
       for(const [sid,tok] of room.socketIndex.entries()){
@@ -338,7 +338,7 @@ io.on('connection', socket => {
       for(const c of [...holdemTwo,...ploFour]) if(!set.has(c)) return cb?.({ok:false,error:'Invalid card'});
       seat.pickHoldem=[...holdemTwo]; seat.pickPLO=[...ploFour]; seat.locked=true;
 
-      // immediate broadcast of lock status
+      // immediate lock status
       io.to(code).emit('roomUpdate', publicState(room));
 
       const allLocked=[...room.holes.values()].every(s=>s.locked);
@@ -372,7 +372,8 @@ io.on('connection', socket => {
       } else if(room.board.length===4){
         room.board.push(room.deck.pop());
         io.to(code).emit('roomUpdate', publicState(room));
-        recomputeAndEmitFast(room, code, 'river');
+        // We will emit 'streetUpdate' with 100% winners inside scoreAndFinish.
+        recomputeAndEmitFast(room, code, 'river'); // light compute (equities cleared)
         scoreAndFinish(room, code);
       }
     }catch(e){ console.error('revealNextStreet error', e); }
@@ -429,6 +430,16 @@ function scoreAndFinish(room, code){
   const topH=scoresH.filter(x=>cmp5(x.score,scoresH[0].score)===0).map(x=>x.tok);
   const topP=scoresP.filter(x=>cmp5(x.score,scoresP[0].score)===0).map(x=>x.tok);
 
+  // === NEW: on river, show winners at 100% on the Revealed table ===
+  const eqFinalHE={}, eqFinalPLO={};
+  for (const [tok] of room.holes.entries()){
+    eqFinalHE[tok] = { win: topH.includes(tok) ? 100 : 0, tie: 0 };
+    eqFinalPLO[tok] = { win: topP.includes(tok) ? 100 : 0, tie: 0 };
+  }
+  room.equities = { he: eqFinalHE, plo: eqFinalPLO };
+  io.to(code).emit('streetUpdate', { stage:'river', board:room.board, equities:room.equities, picks: buildPicks(room) });
+
+  // Payouts (balances accumulate across hands)
   const pot=room.ante * room.holes.size;
   const heShare=(pot/2)/Math.max(1, topH.length);
   const ploShare=(pot/2)/Math.max(1, topP.length);
@@ -451,6 +462,5 @@ function scoreAndFinish(room, code){
   });
 
   room.stage='results';
-  room.equities={he:{}, plo:{}}; 
   io.to(code).emit('roomUpdate', publicState(room));
 }
