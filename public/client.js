@@ -1,4 +1,4 @@
-// public/client.js — Table view after locks. Shows all players' HE & PLO hands with win%.
+// public/client.js — Manual street reveals. Table view with equities under HE & PLO hands.
 
 const socket = io();
 socket.on("connect", ()=>console.log("[socket] connected", socket.id));
@@ -10,6 +10,7 @@ const intro=el("intro"), lobby=el("lobby"), selecting=el("selecting"), revealed=
 const chatBox=el("chat"), chatLog=el("chatLog"), chatInput=el("chatInput");
 const handBadge=el("handBadge"), roomBadge=el("roomBadge"), scoopOverlay=el("scoopOverlay");
 const finalModal=el("finalModal"), finalTable=el("finalTable");
+const revealBtn=el("revealBtn"), revealHint=el("revealHint");
 
 function show(v){ [intro,lobby,selecting,revealed,results].forEach(x=>x.classList.add("hidden")); v.classList.remove("hidden"); chatBox.classList.remove("hidden"); }
 function escapeHtml(s){ return (s||"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[m])); }
@@ -41,7 +42,14 @@ function cardChip(card){
 }
 
 /* State */
-const state={ room:null, token:null, you:null, yourCards:[], pickH:new Set(), pickP:new Set(), picksByPlayer:{}, equities:{he:{},plo:{}} };
+const state={
+  room:null, token:null, you:null,
+  yourCards:[], pickH:new Set(), pickP:new Set(),
+  picksByPlayer:{},
+  equities:{ he:{}, plo:{} },
+  board:[],
+  stage:'lobby'
+};
 
 /* Rendering */
 function renderPlayers(players=[]){
@@ -84,21 +92,18 @@ function renderTableView(){
   grid.innerHTML='';
   const players = window._playersCache || [];
   players.forEach(p=>{
-    // skip seats that aren't in the current hand
     const entry = state.picksByPlayer[p.id];
-    if(!entry) return;
+    if(!entry) return; // only show players in the current hand
     const seatDiv=document.createElement('div'); seatDiv.className='seat';
     const heEq = (state.equities.he?.[p.id]?.win ?? 0).toFixed(1);
     const ploEq = (state.equities.plo?.[p.id]?.win ?? 0).toFixed(1);
 
-    // HE hand (2)
     const heRow=document.createElement('div'); heRow.className='handRow';
     heRow.innerHTML = `<div class="label">HE</div>`;
     (entry.holdem||[]).forEach(c=>heRow.appendChild(cardChip(c)));
     const hePct=document.createElement('div'); hePct.className='eq mono'; hePct.textContent = `${heEq}%`;
     heRow.appendChild(hePct);
 
-    // PLO hand (4)
     const ploRow=document.createElement('div'); ploRow.className='handRow';
     ploRow.innerHTML = `<div class="label">PLO</div>`;
     (entry.plo||[]).forEach(c=>ploRow.appendChild(cardChip(c)));
@@ -110,6 +115,22 @@ function renderTableView(){
     seatDiv.appendChild(ploRow);
     grid.appendChild(seatDiv);
   });
+}
+
+/* Reveal button state */
+function updateRevealUI(){
+  if(!revealBtn) return;
+  const n = state.board.length;
+  revealBtn.disabled = (state.stage!=='revealed');
+  if(state.stage!=='revealed'){
+    revealBtn.textContent = 'Reveal Flop';
+    revealHint.textContent = '';
+    return;
+  }
+  if(n===0){ revealBtn.textContent='Reveal Flop'; revealHint.textContent=''; }
+  else if(n===3){ revealBtn.textContent='Reveal Turn'; revealHint.textContent=''; }
+  else if(n===4){ revealBtn.textContent='Reveal River'; revealHint.textContent=''; }
+  else { revealBtn.textContent='Reveal'; revealBtn.disabled=true; }
 }
 
 /* Selection */
@@ -149,6 +170,13 @@ el("nextBtn").onclick = ()=> socket.emit('nextHand');
 const termBtn=document.getElementById('terminateBtn');
 if(termBtn) termBtn.onclick = ()=>{ if(confirm('Terminate table?')) socket.emit('terminateTable'); };
 
+if(revealBtn){
+  revealBtn.onclick = ()=>{
+    // send request to reveal the next street (flop -> turn -> river)
+    socket.emit('revealNextStreet');
+  };
+}
+
 // Auto-rejoin
 window.addEventListener('load', ()=>{
   const { token, room } = getIdentity();
@@ -163,6 +191,9 @@ window.addEventListener('load', ()=>{
 
 /* Socket events */
 socket.on('roomUpdate', data=>{
+  state.stage = data.stage;
+  state.board = data.board || [];
+
   setBadges(getIdentity().room, data.handNumber||0);
   renderPlayers(data.players);
   el("anteInput").value=data.ante||0;
@@ -172,9 +203,9 @@ socket.on('roomUpdate', data=>{
   if(sitBtn){ const s=!!me?.sitOut; sitBtn.textContent=s?'Return to Play':'Sit Out'; sitBtn.setAttribute('data-on', s?'1':'0'); }
 
   if (data.stage==='revealed' || data.stage==='results') {
-    renderBoard('board', data.board||[]);
-    // When we have latest equities (set by streetUpdate), we also refresh seats in renderTableView
+    renderBoard('board', state.board);
     renderTableView();
+    updateRevealUI();
   }
 
   if(data.stage==='lobby') show(lobby);
@@ -183,7 +214,7 @@ socket.on('roomUpdate', data=>{
   else if(data.stage==='results') show(results);
 });
 
-// During flop/turn/river we get equities + all players' locked picks
+// During preflop/flop/turn/river we get equities + all players' locked picks
 socket.on('streetUpdate', payload=>{
   if (payload?.equities) state.equities = payload.equities;
   if (payload?.picks) {
@@ -193,8 +224,11 @@ socket.on('streetUpdate', payload=>{
     }
     state.picksByPlayer = m;
   }
-  renderBoard('board', payload?.board||[]);
+  state.board = payload?.board || state.board;
+  renderBoard('board', state.board);
   renderTableView();
+  state.stage = 'revealed';
+  updateRevealUI();
   show(revealed);
 });
 
@@ -204,7 +238,7 @@ socket.on('yourCards', ({cards})=>{
 });
 
 socket.on('results', payload=>{
-  setBadges(getIdentity().room, payload.handNumber||0);
+  // keep revealed table + board visible; also show results panel with final board & winners
   renderBoard('finalBoard', payload.board||[]);
   const winnersDiv=el("winners");
   const nameOf=sid=>payload.picks[sid]?.name || sid;
@@ -218,7 +252,10 @@ socket.on('results', payload=>{
     launchScoopFireworks(scoop);
   }
   winnersDiv.innerHTML=html;
+
+  // We don't hide the revealed view; Results panel is visible and persists until Next Hand.
   show(results);
+  updateRevealUI(); // disables the reveal button post-river
 });
 
 socket.on('finalResults', ({handNumber, ante, players})=>{
