@@ -1,124 +1,29 @@
-/* server.js
-   Peanuts Poker: rooms persist, sit-out, chat, phased streets w/ equities & outs,
-   accounts + lifetime stats in Postgres.
-*/
+// server.js — Peanuts Poker (no DB/auth). Persistent rooms in memory, sit-out,
+// phased streets with equities & outs, chat, hand counter, scoop fireworks, final results.
+
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const path = require('path');
-const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
-const { Pool } = require('pg');
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: '*' } });
 
-// --- Config / DB ---
-const PORT = process.env.PORT || 3000;
-const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-me';
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+// (Helpful while iterating; remove for caching later)
+app.use((_, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); });
 
-// --- Middleware ---
-app.use((req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); });
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
 
-// --- Auth helpers ---
-async function findUserByUsername(username) {
-  const { rows } = await pool.query('SELECT * FROM users WHERE username=$1', [username]);
-  return rows[0] || null;
-}
-async function createUser(username, passHash) {
-  const { rows } = await pool.query(
-    'INSERT INTO users (username, pass_hash) VALUES ($1,$2) RETURNING id, username',
-    [username, passHash]
-  );
-  await pool.query('INSERT INTO user_stats (user_id) VALUES ($1) ON CONFLICT DO NOTHING', [rows[0].id]);
-  return rows[0];
-}
-async function getStats(userId) {
-  const { rows } = await pool.query('SELECT * FROM user_stats WHERE user_id=$1', [userId]);
-  return rows[0] || null;
-}
-async function addHandsPlayed(userIds) {
-  if (!userIds.length) return;
-  await pool.query(
-    `UPDATE user_stats SET hands_played = hands_played + 1 WHERE user_id = ANY($1::int[])`,
-    [userIds]
-  );
-}
-async function addNet(userId, delta) {
-  await pool.query(
-    `UPDATE user_stats SET total_net = total_net + $2 WHERE user_id=$1`,
-    [userId, delta]
-  );
-}
-async function addHeWins(userIds) {
-  if (!userIds.length) return;
-  await pool.query(`UPDATE user_stats SET he_wins = he_wins + 1 WHERE user_id = ANY($1::int[])`, [userIds]);
-}
-async function addPloWins(userIds) {
-  if (!userIds.length) return;
-  await pool.query(`UPDATE user_stats SET plo_wins = plo_wins + 1 WHERE user_id = ANY($1::int[])`, [userIds]);
-}
-async function addScoops(userId) {
-  await pool.query(`UPDATE user_stats SET scoops = scoops + 1 WHERE user_id=$1`, [userId]);
-}
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => console.log(`Peanuts server listening on ${PORT}`));
 
-function issueToken(user) {
-  return jwt.sign({ uid: user.id, u: user.username }, JWT_SECRET, { expiresIn: '30d' });
-}
-function authMiddleware(req, _res, next) {
-  const hdr = req.headers.authorization || '';
-  const tok = hdr.startsWith('Bearer ') ? hdr.slice(7) : null;
-  if (tok) {
-    try { req.user = jwt.verify(tok, JWT_SECRET); } catch {}
-  }
-  next();
-}
-app.use(authMiddleware);
-
-// --- Auth routes ---
-app.post('/api/register', async (req, res) => {
-  try {
-    const { username, password } = req.body || {};
-    if (!username || !password) return res.status(400).json({ ok:false, error:'Missing fields' });
-    const exists = await findUserByUsername(username);
-    if (exists) return res.status(400).json({ ok:false, error:'Username taken' });
-    const passHash = await bcrypt.hash(password, 10);
-    const u = await createUser(username, passHash);
-    const token = issueToken(u);
-    res.json({ ok:true, token, username: u.username });
-  } catch (e) { console.error(e); res.status(500).json({ ok:false }); }
-});
-app.post('/api/login', async (req, res) => {
-  try {
-    const { username, password } = req.body || {};
-    const u = await findUserByUsername(username);
-    if (!u) return res.status(400).json({ ok:false, error:'Invalid credentials' });
-    const ok = await bcrypt.compare(password, u.pass_hash);
-    if (!ok) return res.status(400).json({ ok:false, error:'Invalid credentials' });
-    const token = issueToken(u);
-    res.json({ ok:true, token, username: u.username });
-  } catch (e) { console.error(e); res.status(500).json({ ok:false }); }
-});
-app.get('/api/me', (req, res) => {
-  if (!req.user) return res.status(401).json({ ok:false });
-  res.json({ ok:true, id: req.user.uid, username: req.user.u });
-});
-app.get('/api/my-stats', async (req, res) => {
-  if (!req.user) return res.status(401).json({ ok:false });
-  const stats = await getStats(req.user.uid);
-  res.json({ ok:true, stats });
-});
-
-// -------------------- Card / Eval / Equity --------------------
+// -------------------- Card / Eval helpers --------------------
 const MAX_PLAYERS = 6;
 const SUITS = ['c','d','h','s'];
 const RANKS = ['2','3','4','5','6','7','8','9','T','J','Q','K','A'];
 const RANK_ORDER = { '2':2,'3':3,'4':4,'5':5,'6':6,'7':7,'8':8,'9':9,'T':10,'J':11,'Q':12,'K':13,'A':14 };
-
 const cv = c => RANK_ORDER[c[0]];
 const cs = c => c[1];
 
@@ -169,79 +74,61 @@ function evalPLO(hole4,board){
   return best;
 }
 
-// Monte Carlo equity (fast-ish)
+// Monte Carlo equities (speed/accuracy tradeoff)
 function monteCarloEquity(players, board, deck, game, iters=1500){
-  // players: [{id, hole2 or hole4}]
-  // game: 'he' | 'plo'
-  const active = players.map(p=>({id:p.id}));
-  const wins = new Map(active.map(p=>[p.id,0]));
-  const ties = new Map(active.map(p=>[p.id,0]));
-
+  const wins=new Map(players.map(p=>[p.id,0]));
+  const ties=new Map(players.map(p=>[p.id,0]));
   for(let t=0;t<iters;t++){
-    // draw remainder of board
-    const d = deck.slice();
-    // shuffle a few cards for randomness
-    for(let i=d.length-1;i>0;i--){const j=(Math.random()* (i+1))|0; [d[i],d[j]]=[d[j],d[i]];}
-
-    const need = 5 - board.length;
-    const fill = d.slice(0, need);
-    const simBoard = board.concat(fill);
-
-    let scores;
-    if (game==='he') {
-      scores = players.map(p=>({ id:p.id, score: evalHoldem(p.hole2, simBoard) }));
-    } else {
-      scores = players.map(p=>({ id:p.id, score: evalPLO(p.hole4, simBoard) }));
-    }
-    // sort desc
-    scores.sort((a,b)=>cmp5(b.score, a.score));
-    const best = scores[0].score;
-    const top = scores.filter(s=>cmp5(s.score,best)===0).map(s=>s.id);
-    if (top.length===1) wins.set(top[0], wins.get(top[0])+1);
-    else top.forEach(id=>ties.set(id, ties.get(id)+1));
+    const d=deck.slice();
+    for(let i=d.length-1;i>0;i--){const j=(Math.random()*(i+1))|0; [d[i],d[j]]=[d[j],d[i]];}
+    const need=5-board.length, fill=d.slice(0,need), simB=board.concat(fill);
+    const scores = game==='he'
+      ? players.map(p=>({id:p.id, score:evalHoldem(p.hole2, simB)}))
+      : players.map(p=>({id:p.id, score:evalPLO(p.hole4, simB)}));
+    scores.sort((a,b)=>cmp5(b.score,a.score));
+    const best=scores[0].score;
+    const top=scores.filter(s=>cmp5(s.score,best)===0).map(s=>s.id);
+    if(top.length===1) wins.set(top[0], wins.get(top[0])+1);
+    else top.forEach(id=>ties.set(id, (ties.get(id)||0)+1));
   }
-  const res = {};
-  active.forEach(p=>{
-    const w=wins.get(p.id), t=ties.get(p.id);
-    res[p.id] = { win: (w/iters)*100, tie: (t/iters)*100 };
+  const res={}; players.forEach(p=>{
+    res[p.id]={ win:(wins.get(p.id)/iters)*100, tie:(ties.get(p.id)/iters)*100 };
   });
   return res;
 }
-
-// Approx outs: enumerate next card that turns you into (tied) leader
+// Outs for next card (leaders after the next card)
 function computeOutsNext(players, board, deck, game){
-  if (board.length>=5) return {}; // no outs after river
-  const outsBy = {};
-  for (const p of players) outsBy[p.id]=new Set();
-  for (let i=0;i<deck.length;i++){
-    const card = deck[i];
-    const nb = board.concat(card);
-    let scores;
-    if (game==='he') scores = players.map(pl=>({ id:pl.id, score: evalHoldem(pl.hole2, nb) }));
-    else scores = players.map(pl=>({ id:pl.id, score: evalPLO(pl.hole4, nb) }));
+  if(board.length>=5) return {};
+  const outs={}; players.forEach(p=>outs[p.id]=new Set());
+  for(const card of deck){
+    const nb=board.concat(card);
+    const scores = game==='he'
+      ? players.map(pl=>({id:pl.id, score:evalHoldem(pl.hole2, nb)}))
+      : players.map(pl=>({id:pl.id, score:evalPLO(pl.hole4, nb)}));
     scores.sort((a,b)=>cmp5(b.score,a.score));
-    const best = scores[0].score;
-    const leaders = scores.filter(s=>cmp5(s.score,best)===0).map(s=>s.id);
-    leaders.forEach(id=>outsBy[id].add(card));
+    const best=scores[0].score;
+    scores.filter(s=>cmp5(s.score,best)===0).forEach(s=>outs[s.id].add(card));
   }
-  // convert to arrays
-  const outArr = {};
-  for (const [id,set] of Object.entries(outsBy)) outArr[id] = Array.from(set);
+  const outArr={}; for(const [id,set] of Object.entries(outs)) outArr[id]=Array.from(set);
   return outArr;
 }
 
-// -------------------- Rooms & persistence --------------------
+// -------------------- Rooms (in-memory) --------------------
 /**
- rooms: Map<code, {
-   hostToken: string|null,
-   players: Map<token, { name, balance, present, lastSeen, sitOut, userId? }>,
-   socketIndex: Map<socketId, token>,
-   stage, deck, board, ante, handNumber,
-   holes: Map<token, { hole, pickHoldem, pickPLO, locked }>,
-   chat: [...],
-   equities: { he: Record<token, {win,tie}>, plo: Record<token, {win,tie}> },
-   outs: { he: Record<token,string[]>, plo: Record<token,string[]> }
- }>
+rooms: Map<code, {
+  hostToken: string|null,
+  players: Map<token, { name, balance, present, lastSeen, sitOut }>,
+  socketIndex: Map<socketId, token>,
+  stage: 'lobby'|'selecting'|'revealed'|'results',
+  deck: string[],
+  board: string[],
+  ante: number,
+  handNumber: number,
+  holes: Map<token, { hole, pickHoldem, pickPLO, locked }>,
+  chat: {from,text,ts,system?}[],
+  equities: { he:Record<token,{win,tie}>, plo:Record<token,{win,tie}> },
+  outs: { he:Record<token,string[]>, plo:Record<token,string[]> }
+}>
 */
 const rooms = new Map();
 function getRoom(code){
@@ -264,75 +151,62 @@ function getRoom(code){
   return rooms.get(code);
 }
 function systemMsg(room, text){
-  const m={from:'system',text,ts:Date.now(),system:true};
+  const m={from:'system', text, ts:Date.now(), system:true};
   room.chat.push(m); if(room.chat.length>500) room.chat.shift();
+}
+function genToken(){ return Math.random().toString(36).slice(2)+Math.random().toString(36).slice(2); }
+function cardsLeft(room){
+  const used=new Set(room.board);
+  for(const seat of room.holes.values()) seat.hole.forEach(c=>used.add(c));
+  const d=[]; for(const r of RANKS) for(const s of SUITS){ const c=r+s; if(!used.has(c)) d.push(c); }
+  return d;
 }
 function publicState(room){
   const players=[];
-  for(const [token,p] of room.players.entries()){
+  for(const [tok,p] of room.players.entries()){
     players.push({
-      id:token, name:p.name, isHost:room.hostToken===token,
-      balance:p.balance||0, locked:room.holes.get(token)?.locked||false,
+      id:tok, name:p.name, isHost:room.hostToken===tok,
+      balance:p.balance||0, locked:room.holes.get(tok)?.locked||false,
       present:!!p.present, sitOut:!!p.sitOut
     });
   }
   return {
-    stage: room.stage,
+    stage:room.stage,
     players,
-    board: (room.stage==='revealed'||room.stage==='results') ? room.board : [],
-    ante: room.ante,
-    handNumber: room.handNumber,
+    board:(room.stage==='revealed'||room.stage==='results')? room.board : [],
+    ante:room.ante,
+    handNumber:room.handNumber,
     equities: room.equities,
     outs: room.outs
   };
 }
-function genToken(){ return Math.random().toString(36).slice(2)+Math.random().toString(36).slice(2); }
-function cardsLeft(room){
-  const used = new Set(room.board);
-  for (const seat of room.holes.values()) {
-    seat.hole.forEach(c=>used.add(c));
-  }
-  const d=[]; for(const r of RANKS) for(const s of SUITS){ const c=r+s; if(!used.has(c)) d.push(c); }
-  return d;
-}
 
 // -------------------- Socket handlers --------------------
 io.on('connection', socket => {
-  // client can include bearer token (user login) in query? Simpler: they call /api/me separately.
-
-  socket.on('joinRoom', async ({ roomCode, name, token, authToken }, cb)=>{
+  socket.on('joinRoom', ({roomCode,name,token}, cb)=>{
     const code=(roomCode||'').trim().toUpperCase();
     if(!/^[A-Z0-9]{3,8}$/.test(code)) return cb?.({ok:false,error:'Invalid room code'});
     const room=getRoom(code);
 
-    // decode authToken if present (link userId to seat for stats)
-    let userId=null, username=null;
-    if (authToken) {
-      try { const u=jwt.verify(authToken, JWT_SECRET); userId=u.uid; username=u.u; } catch {}
-    }
-
     let useToken=(token && room.players.has(token))? token : null;
     if(!useToken){
       if(room.players.size>=MAX_PLAYERS) return cb?.({ok:false,error:'Room full'});
-      let finalName=(name||username||'Player').trim()||'Player';
+      let finalName=(name||'Player').trim()||'Player';
       const names=new Set([...room.players.values()].map(p=>p.name));
       let i=1,cand=finalName; while(names.has(cand)){cand=`${finalName} ${i++}`;}
-      finalName=cand;
       useToken=genToken();
-      room.players.set(useToken,{ name:finalName, balance:0, present:true, lastSeen:Date.now(), sitOut:false, userId });
+      room.players.set(useToken,{ name:cand, balance:0, present:true, lastSeen:Date.now(), sitOut:false });
       if(!room.hostToken) room.hostToken=useToken;
-      systemMsg(room, `${finalName} joined the table.`);
+      systemMsg(room, `${cand} joined the table.`);
     } else {
-      const p=room.players.get(useToken);
-      p.present=true; p.lastSeen=Date.now();
-      if (userId) p.userId = userId; // link on reconnect if newly logged in
+      const p=room.players.get(useToken); p.present=true; p.lastSeen=Date.now();
       systemMsg(room, `${p.name} reconnected.`);
     }
 
     room.socketIndex.set(socket.id, useToken);
     socket.join(code);
-    socket.data.roomCode = code;
-    socket.data.token = useToken;
+    socket.data.roomCode=code;
+    socket.data.token=useToken;
 
     io.to(code).emit('roomUpdate', publicState(room));
     io.to(socket.id).emit('chatBacklog', room.chat.slice(-100));
@@ -359,38 +233,35 @@ io.on('connection', socket => {
     io.to(code).emit('roomUpdate', publicState(room));
   });
 
-  socket.on('startHand', async ()=>{
+  socket.on('startHand', ()=>{
     const code=socket.data.roomCode; if(!code) return;
     const room=getRoom(code);
-
     const participants=[...room.players.entries()].filter(([_,p])=>!p.sitOut).map(([t])=>t);
     if(participants.length<2) return;
 
     room.deck=newDeck(); room.board=[]; room.stage='selecting'; room.handNumber++;
-    room.holes=new Map(); room.equities={he:{}, plo:{}}; room.outs={he:{},plo:{}};
+    room.holes=new Map(); room.equities={he:{}, plo:{}}; room.outs={he:{}, plo:{}};
 
     for(const tok of participants){
       const p=room.players.get(tok);
       const hole=[room.deck.pop(),room.deck.pop(),room.deck.pop(),room.deck.pop(),room.deck.pop(),room.deck.pop()];
       room.holes.set(tok,{ hole, pickHoldem:[], pickPLO:[], locked:false });
-      p.balance=(p.balance||0)-room.ante;
+      p.balance=(p.balance||0)-room.ante; // only active seats pay ante
     }
-    // deliver private cards
-    for (const [sid, tok] of room.socketIndex.entries()){
-      const seat=room.holes.get(tok);
-      if(seat) io.to(sid).emit('yourCards',{cards:seat.hole});
+    for(const [sid,tok] of room.socketIndex.entries()){
+      const seat=room.holes.get(tok); if(seat) io.to(sid).emit('yourCards',{cards:seat.hole});
     }
     systemMsg(room, `Hand #${room.handNumber} started. Ante ${room.ante}.`);
     io.to(code).emit('chatMessage',{from:'system',text:`Hand #${room.handNumber} started.`,ts:Date.now(),system:true});
     io.to(code).emit('roomUpdate', publicState(room));
   });
 
-  socket.on('makeSelections', ({holdemTwo, ploFour}, cb)=>{
+  socket.on('makeSelections', ({holdemTwo,ploFour}, cb)=>{
     const code=socket.data.roomCode; if(!code) return cb?.({ok:false,error:'No room'});
     const room=getRoom(code); const tok=socket.data.token; const seat=room.holes.get(tok);
     if(!seat) return cb?.({ok:false,error:'Not in this hand'});
     const set=new Set(seat.hole);
-    if((holdemTwo||[]).length!==2||(ploFour||[]).length!==4) return cb?.({ok:false,error:'Pick 2 HE + 4 PLO'});
+    if((holdemTwo||[]).length!==2 || (ploFour||[]).length!==4) return cb?.({ok:false,error:'Pick 2 HE & 4 PLO'});
     for(const c of [...holdemTwo,...ploFour]) if(!set.has(c)) return cb?.({ok:false,error:'Invalid card'});
     seat.pickHoldem=[...holdemTwo]; seat.pickPLO=[...ploFour]; seat.locked=true;
     io.to(code).emit('roomUpdate', publicState(room));
@@ -398,25 +269,20 @@ io.on('connection', socket => {
     cb?.({ok:true});
   });
 
-  socket.on('nextHand',()=>{
+  socket.on('nextHand', ()=>{
     const code=socket.data.roomCode; if(!code) return;
-    const room=getRoom(code); room.stage='lobby'; room.board=[]; room.deck=[]; room.holes=new Map();
-    room.equities={he:{}, plo:{}}; room.outs={he:{},plo:{}};
+    const room=getRoom(code);
+    room.stage='lobby'; room.board=[]; room.deck=[]; room.holes=new Map();
+    room.equities={he:{}, plo:{}}; room.outs={he:{}, plo:{}};
     io.to(code).emit('roomUpdate', publicState(room));
   });
 
-  socket.on('terminateTable', async ()=>{
+  socket.on('terminateTable', ()=>{
     const code=socket.data.roomCode; if(!code) return;
     const room=getRoom(code);
-    if(room.hostToken !== socket.data.token) return;
-
-    const final=[...room.players.entries()].map(([tok,p])=>({
-      id:tok, name:p.name, balance:p.balance||0, userId:p.userId||null
-    })).sort((a,b)=>b.balance-a.balance);
-
+    if(room.hostToken!==socket.data.token) return;
+    const final=[...room.players.entries()].map(([tok,p])=>({id:tok,name:p.name,balance:p.balance||0})).sort((a,b)=>b.balance-a.balance);
     io.to(code).emit('finalResults',{handNumber:room.handNumber, ante:room.ante, players:final});
-    // no stat update here; stats updated per-hand already
-
     setTimeout(()=>{ io.to(code).emit('terminated'); rooms.delete(code); }, 200);
   });
 
@@ -435,7 +301,6 @@ io.on('connection', socket => {
     if(!room||!tok||!room.players.has(tok)) return;
     const p=room.players.get(tok); p.present=false; p.lastSeen=Date.now();
     room.socketIndex.delete(socket.id);
-
     if(room.stage==='selecting'){
       const seat=room.holes.get(tok);
       if(seat && !seat.locked){
@@ -451,121 +316,66 @@ io.on('connection', socket => {
   });
 });
 
-// Phased streets with equities and outs
+// Streets with 3s delays + equities/outs
 function checkAllLockedThenRunStreets(room, code){
-  if (room.holes.size===0) return;
+  if(room.holes.size===0) return;
   const allLocked=[...room.holes.values()].every(s=>s.locked);
-  if (!allLocked) return;
+  if(!allLocked) return;
 
-  // Who’s in hand (by token) & map their HE and PLO holes
-  const participants = [...room.holes.entries()].map(([tok,seat])=>({
-    id: tok,
-    hole2: seat.pickHoldem,
-    hole4: seat.pickPLO
-  }));
+  const participants=[...room.holes.entries()].map(([tok,seat])=>({ id:tok, hole2:seat.pickHoldem, hole4:seat.pickPLO }));
 
-  // Helper to recompute equities/outs & broadcast
-  const recomputeAndEmit = (stageLabel) => {
+  const recomputeAndEmit = stage => {
     const d = cardsLeft(room);
-    const heEq = monteCarloEquity(participants.map(p=>({id:p.id, hole2:p.hole2})), room.board, d, 'he', 1500);
-    const ploEq = monteCarloEquity(participants.map(p=>({id:p.id, hole4:p.hole4})), room.board, d, 'plo', 1200);
-    room.equities = { he: heEq, plo: ploEq };
-
-    // Outs only when a next card remains (after flop & turn)
-    if (room.board.length<5 && room.board.length>=3){
-      const heOuts = computeOutsNext(participants.map(p=>({id:p.id, hole2:p.hole2})), room.board, d, 'he');
-      const ploOuts = computeOutsNext(participants.map(p=>({id:p.id, hole4:p.hole4})), room.board, d, 'plo');
-      room.outs = { he: heOuts, plo: ploOuts };
-    } else {
-      room.outs = { he:{}, plo:{} };
-    }
-
+    const heEq = monteCarloEquity(participants.map(p=>({id:p.id,hole2:p.hole2})), room.board, d, 'he', 1500);
+    const ploEq = monteCarloEquity(participants.map(p=>({id:p.id,hole4:p.hole4})), room.board, d, 'plo', 1200);
+    room.equities={he:heEq, plo:ploEq};
+    if(room.board.length<5 && room.board.length>=3){
+      const heOut = computeOutsNext(participants.map(p=>({id:p.id,hole2:p.hole2})), room.board, d, 'he');
+      const ploOut = computeOutsNext(participants.map(p=>({id:p.id,hole4:p.hole4})), room.board, d, 'plo');
+      room.outs={he:heOut, plo:ploOut};
+    } else room.outs={he:{}, plo:{}};
     io.to(code).emit('roomUpdate', publicState(room));
-    io.to(code).emit('streetUpdate', { stage: stageLabel, board: room.board, equities: room.equities, outs: room.outs });
+    io.to(code).emit('streetUpdate', { stage, board:room.board, equities:room.equities, outs:room.outs });
   };
 
-  // Deal flop → wait 3s → turn → wait 3s → river → score
-  room.stage = 'revealed';
-
-  // Flop
-  if (room.board.length === 0) {
-    room.board.push(room.deck.pop(), room.deck.pop(), room.deck.pop());
+  room.stage='revealed';
+  if(room.board.length===0){
+    room.board.push(room.deck.pop(),room.deck.pop(),room.deck.pop());
     recomputeAndEmit('flop');
   }
-  setTimeout(()=> {
-    // Turn
-    if (room.board.length === 3) {
-      room.board.push(room.deck.pop());
-      recomputeAndEmit('turn');
-    }
-    setTimeout(()=> {
-      // River
-      if (room.board.length === 4) {
-        room.board.push(room.deck.pop());
-        recomputeAndEmit('river');
-      }
-      // Score after small delay
-      setTimeout(()=> scoreAndSetResults(room, code), 200);
+  setTimeout(()=>{
+    if(room.board.length===3){ room.board.push(room.deck.pop()); recomputeAndEmit('turn'); }
+    setTimeout(()=>{
+      if(room.board.length===4){ room.board.push(room.deck.pop()); recomputeAndEmit('river'); }
+      setTimeout(()=> scoreAndFinish(room, code), 200);
     }, 3000);
   }, 3000);
 }
 
-async function scoreAndSetResults(room, code){
+function scoreAndFinish(room, code){
   const scoresH=[], scoresP=[];
-  for(const [tok, seat] of room.holes.entries()){
-    scoresH.push({ tok, score: evalHoldem(seat.pickHoldem, room.board) });
-    scoresP.push({ tok, score: evalPLO(seat.pickPLO, room.board) });
+  for(const [tok,seat] of room.holes.entries()){
+    scoresH.push({tok, score:evalHoldem(seat.pickHoldem, room.board)});
+    scoresP.push({tok, score:evalPLO(seat.pickPLO, room.board)});
   }
   scoresH.sort((a,b)=>cmp5(b.score,a.score));
   scoresP.sort((a,b)=>cmp5(b.score,a.score));
 
-  const topH = scoresH.filter(x=>cmp5(x.score,scoresH[0].score)===0).map(x=>x.tok);
-  const topP = scoresP.filter(x=>cmp5(x.score,scoresP[0].score)===0).map(x=>x.tok);
+  const topH=scoresH.filter(x=>cmp5(x.score,scoresH[0].score)===0).map(x=>x.tok);
+  const topP=scoresP.filter(x=>cmp5(x.score,scoresP[0].score)===0).map(x=>x.tok);
 
-  const pot = room.ante * room.holes.size;
-  const heShare = (pot/2) / Math.max(1, topH.length);
-  const ploShare = (pot/2) / Math.max(1, topP.length);
+  const pot=room.ante * room.holes.size;
+  const heShare=(pot/2)/Math.max(1, topH.length);
+  const ploShare=(pot/2)/Math.max(1, topP.length);
 
   for(const t of topH){ const p=room.players.get(t); p.balance=(p.balance||0)+heShare; }
   for(const t of topP){ const p=room.players.get(t); p.balance=(p.balance||0)+ploShare; }
 
-  const scoops = (topH.length===1 && topP.length===1 && topH[0]===topP[0]) ? [topH[0]] : [];
+  const scoops=(topH.length===1 && topP.length===1 && topH[0]===topP[0]) ? [topH[0]] : [];
 
-  const picks={}; for(const [tok, seat] of room.holes.entries()){
-    picks[tok] = { name: room.players.get(tok).name, holdem: seat.pickHoldem, plo: seat.pickPLO, hole: seat.hole };
+  const picks={}; for(const [tok,seat] of room.holes.entries()){
+    picks[tok]={ name:room.players.get(tok).name, holdem:seat.pickHoldem, plo:seat.pickPLO, hole:seat.hole };
   }
-
-  // ---- Lifetime stats updates ----
-  try {
-    // Hands played for all *active seats in this hand*
-    const activeUserIds = [...room.holes.keys()]
-      .map(tok => room.players.get(tok)?.userId)
-      .filter(Boolean);
-    await addHandsPlayed(activeUserIds);
-
-    // Net chips (heShare/ploShare already applied to balances; convert to deltas):
-    // Each active player paid ante. Winners got shares.
-    const ante = room.ante;
-    for (const tok of room.holes.keys()){
-      const p = room.players.get(tok);
-      if (!p.userId) continue;
-      // Compute delta: they paid ante at start, now net pot arrival
-      // Simpler: recompute delta from last step: for each player, +heShare if in topH, +ploShare if in topP, -ante
-      let delta = -ante;
-      if (topH.includes(tok)) delta += heShare;
-      if (topP.includes(tok)) delta += ploShare;
-      await addNet(p.userId, delta);
-    }
-    // Wins
-    const heUserIds = topH.map(tok => room.players.get(tok)?.userId).filter(Boolean);
-    const ploUserIds = topP.map(tok => room.players.get(tok)?.userId).filter(Boolean);
-    await addHeWins(heUserIds);
-    await addPloWins(ploUserIds);
-    if (scoops.length === 1) {
-      const uid = room.players.get(scoops[0])?.userId;
-      if (uid) await addScoops(uid);
-    }
-  } catch (e) { console.warn('stat update error', e); }
 
   io.to(code).emit('results', {
     board: room.board,
@@ -576,10 +386,6 @@ async function scoreAndSetResults(room, code){
   });
 
   room.stage='results';
-  // Equities/outs no longer relevant after river
   room.equities={he:{}, plo:{}}; room.outs={he:{}, plo:{}};
   io.to(code).emit('roomUpdate', publicState(room));
 }
-
-// --- Start server ---
-server.listen(PORT, () => console.log(`Peanuts server on :${PORT}`));
