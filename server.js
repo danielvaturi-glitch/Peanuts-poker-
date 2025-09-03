@@ -1,4 +1,6 @@
-// server.js — Peanuts Poker (no DB/auth). Table view after locks, equities only (no outs).
+// server.js — Peanuts Poker (no DB/auth).
+// Manual street reveals: Reveal Flop → Reveal Turn → Reveal River.
+// Shows preflop equities once everyone locks. Results persist until Next Hand.
 
 const express = require('express');
 const http = require('http');
@@ -71,7 +73,7 @@ function evalPLO(hole4,board){
   return best;
 }
 
-// Monte Carlo equities (HE or PLO)
+// Monte Carlo equities
 function monteCarloEquity(players, board, deck, game, iters=1500){
   const wins=new Map(players.map(p=>[p.id,0]));
   const ties=new Map(players.map(p=>[p.id,0]));
@@ -159,6 +161,26 @@ function publicState(room){
   };
 }
 
+// Build picks object for table view
+function buildPicks(room){
+  const p={};
+  for(const [tok,seat] of room.holes.entries()){
+    p[tok]={ name:room.players.get(tok).name, holdem:seat.pickHoldem, plo:seat.pickPLO };
+  }
+  return p;
+}
+
+// Recompute equities & emit streetUpdate
+function recomputeAndEmit(room, code, stageLabel){
+  const participants=[...room.holes.entries()].map(([tok,seat])=>({ id:tok, hole2:seat.pickHoldem, hole4:seat.pickPLO }));
+  const d = cardsLeft(room);
+  const heEq = monteCarloEquity(participants.map(p=>({id:p.id,hole2:p.hole2})), room.board, d, 'he', 1500);
+  const ploEq = monteCarloEquity(participants.map(p=>({id:p.id,hole4:p.hole4})), room.board, d, 'plo', 1200);
+  room.equities={he:heEq, plo:ploEq};
+  io.to(code).emit('roomUpdate', publicState(room));
+  io.to(code).emit('streetUpdate', { stage:stageLabel, board:room.board, equities:room.equities, picks: buildPicks(room) });
+}
+
 // -------------------- Socket handlers --------------------
 io.on('connection', socket => {
   socket.on('joinRoom', ({roomCode,name,token}, cb)=>{
@@ -242,9 +264,40 @@ io.on('connection', socket => {
     if((holdemTwo||[]).length!==2 || (ploFour||[]).length!==4) return cb?.({ok:false,error:'Pick 2 HE & 4 PLO'});
     for(const c of [...holdemTwo,...ploFour]) if(!set.has(c)) return cb?.({ok:false,error:'Invalid card'});
     seat.pickHoldem=[...holdemTwo]; seat.pickPLO=[...ploFour]; seat.locked=true;
+
+    // If everybody locked, switch to revealed and show preflop equities.
+    const allLocked=[...room.holes.values()].every(s=>s.locked);
+    if(allLocked){
+      room.stage='revealed';
+      recomputeAndEmit(room, code, 'preflop'); // board empty, show % now
+    }
     io.to(code).emit('roomUpdate', publicState(room));
-    checkAllLockedThenRunStreets(room, code);
     cb?.({ok:true});
+  });
+
+  // Manual street reveal
+  socket.on('revealNextStreet', ()=>{
+    const code=socket.data.roomCode; if(!code) return;
+    const room=getRoom(code);
+    if(room.stage!=='revealed') return; // not ready
+    const allLocked=[...room.holes.values()].every(s=>s.locked);
+    if(!allLocked) return;
+    if(room.board.length>=5) return; // already done
+
+    if(room.board.length===0){
+      // Reveal flop
+      room.board.push(room.deck.pop(), room.deck.pop(), room.deck.pop());
+      recomputeAndEmit(room, code, 'flop');
+    } else if(room.board.length===3){
+      // Reveal turn
+      room.board.push(room.deck.pop());
+      recomputeAndEmit(room, code, 'turn');
+    } else if(room.board.length===4){
+      // Reveal river + final scoring
+      room.board.push(room.deck.pop());
+      recomputeAndEmit(room, code, 'river');
+      scoreAndFinish(room, code);
+    }
   });
 
   socket.on('nextHand', ()=>{
@@ -286,45 +339,14 @@ io.on('connection', socket => {
         seat.pickPLO=seat.hole.slice(0,4);
         seat.locked=true;
       }
-      checkAllLockedThenRunStreets(room, code);
+      const allLocked=[...room.holes.values()].every(s=>s.locked);
+      if(allLocked){ room.stage='revealed'; recomputeAndEmit(room, code, 'preflop'); }
     }
     systemMsg(room, `${p.name} left the table.`);
     io.to(code).emit('chatMessage',{from:'system',text:`${p.name} left the table.`,ts:Date.now(),system:true});
     io.to(code).emit('roomUpdate', publicState(room));
   });
 });
-
-// Streets with 3s delays + equities; send all players' picks for table view
-function checkAllLockedThenRunStreets(room, code){
-  if(room.holes.size===0) return;
-  const allLocked=[...room.holes.values()].every(s=>s.locked);
-  if(!allLocked) return;
-
-  const participants=[...room.holes.entries()].map(([tok,seat])=>({ id:tok, hole2:seat.pickHoldem, hole4:seat.pickPLO }));
-  const buildPicks=()=>{ const p={}; for(const [tok,seat] of room.holes.entries()){ p[tok]={ holdem:seat.pickHoldem, plo:seat.pickPLO, name:room.players.get(tok).name }; } return p; };
-
-  const recomputeAndEmit = stage => {
-    const d = cardsLeft(room);
-    const heEq = monteCarloEquity(participants.map(p=>({id:p.id,hole2:p.hole2})), room.board, d, 'he', 1500);
-    const ploEq = monteCarloEquity(participants.map(p=>({id:p.id,hole4:p.hole4})), room.board, d, 'plo', 1200);
-    room.equities={he:heEq, plo:ploEq};
-    io.to(code).emit('roomUpdate', publicState(room));
-    io.to(code).emit('streetUpdate', { stage, board:room.board, equities:room.equities, picks: buildPicks() });
-  };
-
-  room.stage='revealed';
-  if(room.board.length===0){
-    room.board.push(room.deck.pop(),room.deck.pop(),room.deck.pop());
-    recomputeAndEmit('flop');
-  }
-  setTimeout(()=>{
-    if(room.board.length===3){ room.board.push(room.deck.pop()); recomputeAndEmit('turn'); }
-    setTimeout(()=>{
-      if(room.board.length===4){ room.board.push(room.deck.pop()); recomputeAndEmit('river'); }
-      setTimeout(()=> scoreAndFinish(room, code), 200);
-    }, 3000);
-  }, 3000);
-}
 
 function scoreAndFinish(room, code){
   const scoresH=[], scoresP=[];
