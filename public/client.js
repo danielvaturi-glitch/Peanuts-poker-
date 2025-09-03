@@ -1,5 +1,5 @@
-// public/client.js — Cards rendering fixed, back-to-lobby buttons, selection countdown & auto-lock UI.
-// Manual street reveals with live equities; results persist until Next Hand.
+// public/client.js — Cards render + back-to-lobby + live rejoin + selection countdown/auto-lock.
+// Manual reveals; results persist until Next Hand.
 
 const socket = io();
 socket.on("connect", ()=>console.log("[socket] connected", socket.id));
@@ -84,7 +84,7 @@ function renderPlayers(players=[]){
     });
   }
 }
-function renderBoard(id,cards){ const c=el(id); c.innerHTML=''; (cards||[]).forEach(x=>c.appendChild(cardChip(x))); }
+function renderBoard(id,cards){ const c=el(id); if(!c) return; c.innerHTML=''; (cards||[]).forEach(x=>c.appendChild(cardChip(x))); }
 function renderHand(cards){
   const c=el("yourHand"); if(!c) return;
   c.innerHTML='';
@@ -109,7 +109,7 @@ function renderTableView(){
   const players = window._playersCache || [];
   players.forEach(p=>{
     const entry = state.picksByPlayer[p.id];
-    if(!entry) return; // only show players in the current hand
+    if(!entry) return; // show only current-hand players
     const seatDiv=document.createElement('div'); seatDiv.className='seat';
     const heEq = (state.equities.he?.[p.id]?.win ?? 0).toFixed(1);
     const ploEq = (state.equities.plo?.[p.id]?.win ?? 0).toFixed(1);
@@ -175,7 +175,7 @@ el("joinBtn").onclick = ()=>{
   });
 };
 
-/* Back-to-lobby view buttons (does not change server state) */
+/* Back-to-lobby view (does not leave the socket room) */
 const goLobby = ()=>show(lobby);
 ["backToIntro","toLobby1","toLobby2","toLobby3"].forEach(id=>{
   const b=el(id); if(b) b.onclick = goLobby;
@@ -197,7 +197,7 @@ if(revealBtn){
   revealBtn.onclick = ()=> socket.emit('revealNextStreet');
 }
 
-// Auto-rejoin
+// Auto-rejoin on load
 window.addEventListener('load', ()=>{
   const { token, room } = getIdentity();
   if(token && room && isValidRoom(room)){
@@ -209,7 +209,7 @@ window.addEventListener('load', ()=>{
   } else show(intro);
 });
 
-/* Countdown (client display driven by server remainingMs) */
+/* Countdown (display driven by server remainingMs) */
 let countdownTimer=null;
 function startCountdown(){
   stopCountdown();
@@ -230,7 +230,7 @@ socket.on('roomUpdate', data=>{
   setBadges(getIdentity().room, data.handNumber||0);
   renderPlayers(data.players);
   el("anteInput").value=data.ante||0;
-  el("timerInput").value=data.selectionSeconds||30;
+  const tin=el("timerInput"); if(tin) tin.value=data.selectionSeconds||30;
 
   const me=(data.players||[]).find(p=>p.id===state.token);
   const sitBtn=el("sitBtn");
@@ -238,6 +238,7 @@ socket.on('roomUpdate', data=>{
 
   if (data.stage==='selecting') {
     startCountdown();
+    // if we rejoined mid-hand and already have cards, keep them; otherwise we'll get 'yourCards' soon
     show(selecting);
   } else {
     stopCountdown();
@@ -254,7 +255,7 @@ socket.on('roomUpdate', data=>{
   else if(data.stage==='results') show(results);
 });
 
-// Preflop & streets carry picks + equities
+// Preflop + streets carry picks + equities
 socket.on('streetUpdate', payload=>{
   if (payload?.equities) state.equities = payload.equities;
   if (payload?.picks) {
@@ -273,12 +274,13 @@ socket.on('streetUpdate', payload=>{
 });
 
 socket.on('yourCards', ({cards})=>{
+  // Ensure cards show in selection view
   state.yourCards=cards||[]; state.pickH=new Set(); state.pickP=new Set();
   renderHand(state.yourCards); renderPickBoxes(); show(selecting);
 });
 
 socket.on('results', payload=>{
-  // Keep revealed table visible; Results panel also visible until Next Hand
+  // Keep revealed table visible; show results panel that persists until Next Hand
   renderBoard('finalBoard', payload.board||[]);
   const winnersDiv=el("winners");
   const nameOf=sid=>payload.picks[sid]?.name || sid;
@@ -294,7 +296,7 @@ socket.on('results', payload=>{
   winnersDiv.innerHTML=html;
 
   show(results);
-  updateRevealUI(); // disables reveal post-river
+  updateRevealUI();
 });
 
 socket.on('finalResults', ({handNumber, ante, players})=>{
@@ -302,4 +304,42 @@ socket.on('finalResults', ({handNumber, ante, players})=>{
   const hdr=document.createElement('div'); hdr.className='finalRow finalHeader';
   hdr.innerHTML='<div>Player</div><div class="mono">Balance</div>'; finalTable.appendChild(hdr);
   players.forEach(p=>{
-    const row=document.create
+    const row=document.createElement('div'); row.className='finalRow';
+    const bal=(p.balance>=0?'+':'')+Number(p.balance||0).toFixed(2);
+    row.innerHTML=`<div>${escapeHtml(p.name)}</div><div class="mono ${p.balance>=0?'positive':'negative'}">${bal}</div>`;
+    finalTable.appendChild(row);
+  });
+  el("finalTitle").textContent=`Final Results — ${getIdentity().room||''} (Hands: ${handNumber||0})`;
+  finalModal.classList.add('show');
+});
+socket.on('terminated', ()=>{ clearIdentity(); });
+
+/* Chat */
+socket.on('chatBacklog', (msgs=[])=>{ chatLog.innerHTML=''; msgs.forEach(addChatLine); });
+socket.on('chatMessage', msg=>addChatLine(msg));
+function addChatLine(msg){
+  const d=document.createElement('div'); d.className='chatmsg' + (msg.system?' system':'');
+  const who=msg.system?'🛈':escapeHtml(msg.from||'Unknown'); const text=escapeHtml(msg.text||'');
+  const time=new Date(msg.ts||Date.now()).toLocaleTimeString();
+  d.innerHTML=`<span class="who">${who}</span> <span class="t">${text}</span> <span class="mono" style="opacity:.6;float:right">${time}</span>`;
+  chatLog.appendChild(d); chatLog.scrollTop=chatLog.scrollHeight;
+}
+el("chatSend").onclick = ()=>sendChat();
+chatInput?.addEventListener('keydown', e=>{ if(e.key==='Enter') sendChat(); });
+function sendChat(){ const t=(chatInput.value||'').trim(); if(!t) return; socket.emit('chatMessage', t); chatInput.value=''; }
+
+/* Fireworks */
+function launchScoopFireworks(name){
+  el("scoopTitle").textContent=`SCOOP by: ${name}!`;
+  scoopOverlay.classList.add('show');
+  setTimeout(()=>scoopOverlay.classList.remove('show'), 3500);
+}
+
+/* Lock / Next */
+el("lockBtn").onclick = ()=>{
+  if(state.pickH.size!==2 || state.pickP.size!==4) return alert("Pick 2 for Hold’em and 4 for PLO.");
+  socket.emit('makeSelections', { holdemTwo:Array.from(state.pickH), ploFour:Array.from(state.pickP) }, res=>{
+    if(!res?.ok) alert(res?.error||'Could not lock');
+  });
+};
+el("finalClose").onclick = ()=>{ finalModal.classList.remove('show'); show(intro); };
