@@ -1,5 +1,4 @@
-// server.js — Peanuts Poker (no DB/auth). Persistent rooms in memory, sit-out,
-// phased streets with equities & outs, chat, hand counter, scoop fireworks, final results.
+// server.js — Peanuts Poker (no DB/auth). Table view after locks, equities only (no outs).
 
 const express = require('express');
 const http = require('http');
@@ -10,9 +9,7 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: '*' } });
 
-// (Helpful while iterating; remove for caching later)
 app.use((_, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); });
-
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
 
@@ -74,7 +71,7 @@ function evalPLO(hole4,board){
   return best;
 }
 
-// Monte Carlo equities (speed/accuracy tradeoff)
+// Monte Carlo equities (HE or PLO)
 function monteCarloEquity(players, board, deck, game, iters=1500){
   const wins=new Map(players.map(p=>[p.id,0]));
   const ties=new Map(players.map(p=>[p.id,0]));
@@ -96,22 +93,6 @@ function monteCarloEquity(players, board, deck, game, iters=1500){
   });
   return res;
 }
-// Outs for next card (leaders after the next card)
-function computeOutsNext(players, board, deck, game){
-  if(board.length>=5) return {};
-  const outs={}; players.forEach(p=>outs[p.id]=new Set());
-  for(const card of deck){
-    const nb=board.concat(card);
-    const scores = game==='he'
-      ? players.map(pl=>({id:pl.id, score:evalHoldem(pl.hole2, nb)}))
-      : players.map(pl=>({id:pl.id, score:evalPLO(pl.hole4, nb)}));
-    scores.sort((a,b)=>cmp5(b.score,a.score));
-    const best=scores[0].score;
-    scores.filter(s=>cmp5(s.score,best)===0).forEach(s=>outs[s.id].add(card));
-  }
-  const outArr={}; for(const [id,set] of Object.entries(outs)) outArr[id]=Array.from(set);
-  return outArr;
-}
 
 // -------------------- Rooms (in-memory) --------------------
 /**
@@ -126,8 +107,7 @@ rooms: Map<code, {
   handNumber: number,
   holes: Map<token, { hole, pickHoldem, pickPLO, locked }>,
   chat: {from,text,ts,system?}[],
-  equities: { he:Record<token,{win,tie}>, plo:Record<token,{win,tie}> },
-  outs: { he:Record<token,string[]>, plo:Record<token,string[]> }
+  equities: { he:Record<token,{win,tie}>, plo:Record<token,{win,tie}> }
 }>
 */
 const rooms = new Map();
@@ -144,8 +124,7 @@ function getRoom(code){
       handNumber:0,
       holes:new Map(),
       chat:[],
-      equities:{ he:{}, plo:{} },
-      outs:{ he:{}, plo:{} }
+      equities:{ he:{}, plo:{} }
     });
   }
   return rooms.get(code);
@@ -176,8 +155,7 @@ function publicState(room){
     board:(room.stage==='revealed'||room.stage==='results')? room.board : [],
     ante:room.ante,
     handNumber:room.handNumber,
-    equities: room.equities,
-    outs: room.outs
+    equities: room.equities
   };
 }
 
@@ -240,7 +218,7 @@ io.on('connection', socket => {
     if(participants.length<2) return;
 
     room.deck=newDeck(); room.board=[]; room.stage='selecting'; room.handNumber++;
-    room.holes=new Map(); room.equities={he:{}, plo:{}}; room.outs={he:{}, plo:{}};
+    room.holes=new Map(); room.equities={he:{}, plo:{}};
 
     for(const tok of participants){
       const p=room.players.get(tok);
@@ -273,7 +251,7 @@ io.on('connection', socket => {
     const code=socket.data.roomCode; if(!code) return;
     const room=getRoom(code);
     room.stage='lobby'; room.board=[]; room.deck=[]; room.holes=new Map();
-    room.equities={he:{}, plo:{}}; room.outs={he:{}, plo:{}};
+    room.equities={he:{}, plo:{}}; 
     io.to(code).emit('roomUpdate', publicState(room));
   });
 
@@ -316,26 +294,22 @@ io.on('connection', socket => {
   });
 });
 
-// Streets with 3s delays + equities/outs
+// Streets with 3s delays + equities; send all players' picks for table view
 function checkAllLockedThenRunStreets(room, code){
   if(room.holes.size===0) return;
   const allLocked=[...room.holes.values()].every(s=>s.locked);
   if(!allLocked) return;
 
   const participants=[...room.holes.entries()].map(([tok,seat])=>({ id:tok, hole2:seat.pickHoldem, hole4:seat.pickPLO }));
+  const buildPicks=()=>{ const p={}; for(const [tok,seat] of room.holes.entries()){ p[tok]={ holdem:seat.pickHoldem, plo:seat.pickPLO, name:room.players.get(tok).name }; } return p; };
 
   const recomputeAndEmit = stage => {
     const d = cardsLeft(room);
     const heEq = monteCarloEquity(participants.map(p=>({id:p.id,hole2:p.hole2})), room.board, d, 'he', 1500);
     const ploEq = monteCarloEquity(participants.map(p=>({id:p.id,hole4:p.hole4})), room.board, d, 'plo', 1200);
     room.equities={he:heEq, plo:ploEq};
-    if(room.board.length<5 && room.board.length>=3){
-      const heOut = computeOutsNext(participants.map(p=>({id:p.id,hole2:p.hole2})), room.board, d, 'he');
-      const ploOut = computeOutsNext(participants.map(p=>({id:p.id,hole4:p.hole4})), room.board, d, 'plo');
-      room.outs={he:heOut, plo:ploOut};
-    } else room.outs={he:{}, plo:{}};
     io.to(code).emit('roomUpdate', publicState(room));
-    io.to(code).emit('streetUpdate', { stage, board:room.board, equities:room.equities, outs:room.outs });
+    io.to(code).emit('streetUpdate', { stage, board:room.board, equities:room.equities, picks: buildPicks() });
   };
 
   room.stage='revealed';
@@ -386,6 +360,6 @@ function scoreAndFinish(room, code){
   });
 
   room.stage='results';
-  room.equities={he:{}, plo:{}}; room.outs={he:{}, plo:{}};
+  room.equities={he:{}, plo:{}}; 
   io.to(code).emit('roomUpdate', publicState(room));
 }
