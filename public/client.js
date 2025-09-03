@@ -1,5 +1,5 @@
-// public/client.js — Cards render + back-to-lobby + leave room + live rejoin + selection countdown/auto-lock.
-// Manual reveals; results persist until Next Hand.
+// public/client.js — shows locked hands on Results screen until Next Hand.
+// Also includes leave-room, back-to-lobby, countdown/auto-lock, table view, manual reveals.
 
 const socket = io();
 socket.on("connect", ()=>console.log("[socket] connected", socket.id));
@@ -48,7 +48,8 @@ function cardChip(card){
 const state={
   room:null, token:null, you:null,
   yourCards:[], pickH:new Set(), pickP:new Set(),
-  picksByPlayer:{},
+  picksByPlayer:{},            // current revealed/river table view
+  finalPicksByPlayer:{},       // results screen table view
   equities:{ he:{}, plo:{} },
   board:[],
   stage:'lobby',
@@ -74,7 +75,7 @@ function renderPlayers(players=[]){
     c.appendChild(row);
   });
 
-  // Lock status panel (during selecting)
+  // Lock status (during selecting)
   if (lockStatus) {
     lockStatus.innerHTML='';
     players.forEach(p=>{
@@ -102,17 +103,17 @@ function renderPickBoxes(){
   Array.from(state.pickP).forEach(c=>p.appendChild(cardChip(c)));
 }
 
-/* Table view */
-function renderTableView(){
-  const grid=el("tableGrid"); if(!grid) return;
+/* Table view (shared) */
+function renderTableView(targetId, picksMap, equities){
+  const grid=el(targetId); if(!grid) return;
   grid.innerHTML='';
   const players = window._playersCache || [];
   players.forEach(p=>{
-    const entry = state.picksByPlayer[p.id];
+    const entry = picksMap[p.id];
     if(!entry) return; // show only current-hand players
     const seatDiv=document.createElement('div'); seatDiv.className='seat';
-    const heEq = (state.equities.he?.[p.id]?.win ?? 0).toFixed(1);
-    const ploEq = (state.equities.plo?.[p.id]?.win ?? 0).toFixed(1);
+    const heEq = (equities?.he?.[p.id]?.win ?? 0).toFixed(1);
+    const ploEq = (equities?.plo?.[p.id]?.win ?? 0).toFixed(1);
 
     const heRow=document.createElement('div'); heRow.className='handRow';
     heRow.innerHTML = `<div class="label">HE</div>`;
@@ -177,11 +178,9 @@ el("joinBtn").onclick = ()=>{
 
 /* Navigation */
 const goLobby = ()=>show(lobby);
-// back-to-lobby buttons on in-hand screens
 ["toLobby1","toLobby2","toLobby3"].forEach(id=>{
   const b=el(id); if(b) b.onclick = goLobby;
 });
-// leave room button on lobby → go to intro & clear saved identity
 const leaveBtn = el("backToIntro");
 if(leaveBtn){ leaveBtn.onclick = ()=>{ clearIdentity(); show(intro); }; }
 
@@ -249,7 +248,7 @@ socket.on('roomUpdate', data=>{
 
   if (data.stage==='revealed' || data.stage==='results') {
     renderBoard('board', state.board);
-    renderTableView();
+    renderTableView('tableGrid', state.picksByPlayer, state.equities);
     updateRevealUI();
   }
 
@@ -258,6 +257,7 @@ socket.on('roomUpdate', data=>{
   else if(data.stage==='results') show(results);
 });
 
+// Preflop/streets (picks + equities)
 socket.on('streetUpdate', payload=>{
   if (payload?.equities) state.equities = payload.equities;
   if (payload?.picks) {
@@ -269,7 +269,7 @@ socket.on('streetUpdate', payload=>{
   }
   state.board = payload?.board || state.board;
   renderBoard('board', state.board);
-  renderTableView();
+  renderTableView('tableGrid', state.picksByPlayer, state.equities);
   state.stage = 'revealed';
   updateRevealUI();
   show(revealed);
@@ -280,8 +280,19 @@ socket.on('yourCards', ({cards})=>{
   renderHand(state.yourCards); renderPickBoxes(); show(selecting);
 });
 
+// RESULTS — keep hands on screen until Next Hand
 socket.on('results', payload=>{
+  // freeze the final picks into a separate map for the Results screen
+  const finalMap={};
+  for(const [pid, info] of Object.entries(payload.picks||{})){
+    finalMap[pid] = { name: info.name, holdem: info.holdem||[], plo: info.plo||[] };
+  }
+  state.finalPicksByPlayer = finalMap;
+
+  // show river board
   renderBoard('finalBoard', payload.board||[]);
+
+  // winners text
   const winnersDiv=el("winners");
   const nameOf=sid=>payload.picks[sid]?.name || sid;
   const holdem=(payload.winners?.holdem||[]).map(nameOf).join(', ');
@@ -293,6 +304,9 @@ socket.on('results', payload=>{
     html += `<p>💥 SCOOP by ${escapeHtml(scoop)}</p>`;
   }
   winnersDiv.innerHTML=html;
+
+  // render final table with everyone’s locked HE/PLO hands
+  renderTableView('tableGridFinal', state.finalPicksByPlayer, /*equities at river not needed*/ {});
 
   show(results);
   updateRevealUI();
