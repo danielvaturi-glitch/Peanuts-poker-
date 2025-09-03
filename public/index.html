@@ -101,3 +101,36 @@
         <h3>Room Chat</h3>
         <div id="chatLog" class="chatlog"></div>
         <div class="row">
+          <input id="chatInput" placeholder="Type a message…"/>
+          <button id="chatSend">Send</button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Fireworks Overlay -->
+  <div id="scoopOverlay" class="overlay">
+    <div class="fireworks">
+      <div class="burst b1"></div>
+      <div class="burst b2"></div>
+      <div class="burst b3"></div>
+    </div>
+    <div class="scoopText" id="scoopTitle">SCOOP!</div>
+  </div>
+
+  <!-- Final Results Modal -->
+  <div id="finalModal" class="modal">
+    <div class="modalContent">
+      <h2 id="finalTitle">Final Results</h2>
+      <div id="finalTable" class="finalTable"></div>
+      <div class="row" style="justify-content:flex-end;">
+        <button id="finalClose">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/client.js?v=13"></script>
+</body>
+</html>
