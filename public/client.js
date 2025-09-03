@@ -1,5 +1,4 @@
-// public/client.js — shows locked hands on Results screen until Next Hand.
-// Also includes leave-room, back-to-lobby, countdown/auto-lock, table view, manual reveals.
+// public/client.js — shows locked hands on Results & marks river winners as 100%.
 
 const socket = io();
 socket.on("connect", ()=>console.log("[socket] connected", socket.id));
@@ -9,9 +8,9 @@ socket.on("disconnect", r=>console.warn("[socket] disconnected", r));
 const el=id=>document.getElementById(id);
 const intro=el("intro"), lobby=el("lobby"), selecting=el("selecting"), revealed=el("revealed"), results=el("results");
 const chatBox=el("chat"), chatLog=el("chatLog"), chatInput=el("chatInput");
-const handBadge=el("handBadge"), roomBadge=el("roomBadge"), scoopOverlay=el("scoopOverlay");
+const handBadge=el("handBadge"), roomBadge=el("roomBadge");
 const finalModal=el("finalModal"), finalTable=el("finalTable");
-const revealBtn=el("revealBtn"), revealHint=el("revealHint");
+const revealBtn=el("revealBtn");
 const countdownEl=el("countdown"), lockStatus=el("lockStatus");
 
 function show(v){ [intro,lobby,selecting,revealed,results].forEach(x=>x.classList.add("hidden")); v.classList.remove("hidden"); chatBox.classList.remove("hidden"); }
@@ -48,9 +47,10 @@ function cardChip(card){
 const state={
   room:null, token:null, you:null,
   yourCards:[], pickH:new Set(), pickP:new Set(),
-  picksByPlayer:{},            // current revealed/river table view
-  finalPicksByPlayer:{},       // results screen table view
-  equities:{ he:{}, plo:{} },
+  picksByPlayer:{},            // revealed/streets
+  finalPicksByPlayer:{},       // results table
+  equities:{ he:{}, plo:{} },  // for revealed table
+  finalEquities:{ he:{}, plo:{} }, // for results table (river: winners=100)
   board:[],
   stage:'lobby',
   selectionRemainingMs:0
@@ -75,7 +75,6 @@ function renderPlayers(players=[]){
     c.appendChild(row);
   });
 
-  // Lock status (during selecting)
   if (lockStatus) {
     lockStatus.innerHTML='';
     players.forEach(p=>{
@@ -103,14 +102,13 @@ function renderPickBoxes(){
   Array.from(state.pickP).forEach(c=>p.appendChild(cardChip(c)));
 }
 
-/* Table view (shared) */
 function renderTableView(targetId, picksMap, equities){
   const grid=el(targetId); if(!grid) return;
   grid.innerHTML='';
   const players = window._playersCache || [];
   players.forEach(p=>{
     const entry = picksMap[p.id];
-    if(!entry) return; // show only current-hand players
+    if(!entry) return;
     const seatDiv=document.createElement('div'); seatDiv.className='seat';
     const heEq = (equities?.he?.[p.id]?.win ?? 0).toFixed(1);
     const ploEq = (equities?.plo?.[p.id]?.win ?? 0).toFixed(1);
@@ -136,14 +134,10 @@ function renderTableView(targetId, picksMap, equities){
 
 /* Reveal button state */
 function updateRevealUI(){
-  if(!revealBtn) return;
   const n = state.board.length;
+  if(!revealBtn) return;
   revealBtn.disabled = (state.stage!=='revealed');
-  if(state.stage!=='revealed'){
-    revealBtn.textContent = 'Reveal Flop';
-    if(revealHint) revealHint.textContent = '';
-    return;
-  }
+  if(state.stage!=='revealed'){ revealBtn.textContent = 'Reveal Flop'; return; }
   if(n===0){ revealBtn.textContent='Reveal Flop'; }
   else if(n===3){ revealBtn.textContent='Reveal Turn'; }
   else if(n===4){ revealBtn.textContent='Reveal River'; }
@@ -196,11 +190,9 @@ el("nextBtn").onclick = ()=> socket.emit('nextHand');
 const termBtn=document.getElementById('terminateBtn');
 if(termBtn) termBtn.onclick = ()=>{ if(confirm('Terminate table?')) socket.emit('terminateTable'); };
 
-if(revealBtn){
-  revealBtn.onclick = ()=> socket.emit('revealNextStreet');
-}
+if(revealBtn){ revealBtn.onclick = ()=> socket.emit('revealNextStreet'); }
 
-// Auto-rejoin on load
+// Auto-rejoin
 window.addEventListener('load', ()=>{
   const { token, room } = getIdentity();
   if(token && room && isValidRoom(room)){
@@ -239,12 +231,8 @@ socket.on('roomUpdate', data=>{
   const sitBtn=el("sitBtn");
   if(sitBtn){ const s=!!me?.sitOut; sitBtn.textContent=s?'Return to Play':'Sit Out'; sitBtn.setAttribute('data-on', s?'1':'0'); }
 
-  if (data.stage==='selecting') {
-    startCountdown();
-    show(selecting);
-  } else {
-    stopCountdown();
-  }
+  if (data.stage==='selecting') { startCountdown(); show(selecting); }
+  else { stopCountdown(); }
 
   if (data.stage==='revealed' || data.stage==='results') {
     renderBoard('board', state.board);
@@ -257,7 +245,7 @@ socket.on('roomUpdate', data=>{
   else if(data.stage==='results') show(results);
 });
 
-// Preflop/streets (picks + equities)
+// Streets (picks + equities)
 socket.on('streetUpdate', payload=>{
   if (payload?.equities) state.equities = payload.equities;
   if (payload?.picks) {
@@ -280,19 +268,27 @@ socket.on('yourCards', ({cards})=>{
   renderHand(state.yourCards); renderPickBoxes(); show(selecting);
 });
 
-// RESULTS — keep hands on screen until Next Hand
+// RESULTS — keep hands until Next Hand, and show 100% winners at river
 socket.on('results', payload=>{
-  // freeze the final picks into a separate map for the Results screen
+  // final picks for results grid
   const finalMap={};
   for(const [pid, info] of Object.entries(payload.picks||{})){
     finalMap[pid] = { name: info.name, holdem: info.holdem||[], plo: info.plo||[] };
   }
   state.finalPicksByPlayer = finalMap;
 
-  // show river board
+  // compute final equities = 100% for winners (ties: all winners 100)
+  const heWinners = new Set(payload.winners?.holdem || []);
+  const ploWinners = new Set(payload.winners?.plo || []);
+  const heEq={}, ploEq={};
+  Object.keys(finalMap).forEach(pid=>{
+    heEq[pid] = { win: heWinners.has(pid) ? 100 : 0, tie: 0 };
+    ploEq[pid] = { win: ploWinners.has(pid) ? 100 : 0, tie: 0 };
+  });
+  state.finalEquities = { he: heEq, plo: ploEq };
+
   renderBoard('finalBoard', payload.board||[]);
 
-  // winners text
   const winnersDiv=el("winners");
   const nameOf=sid=>payload.picks[sid]?.name || sid;
   const holdem=(payload.winners?.holdem||[]).map(nameOf).join(', ');
@@ -305,8 +301,8 @@ socket.on('results', payload=>{
   }
   winnersDiv.innerHTML=html;
 
-  // render final table with everyone’s locked HE/PLO hands
-  renderTableView('tableGridFinal', state.finalPicksByPlayer, /*equities at river not needed*/ {});
+  // render final table with 100% winners
+  renderTableView('tableGridFinal', state.finalPicksByPlayer, state.finalEquities);
 
   show(results);
   updateRevealUI();
