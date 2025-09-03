@@ -1,289 +1,288 @@
-// public/client.js
-// Client-side logic for Peanuts Poker (Hold'em + PLO) with SVG card faces + robust join
+// public/client.js (accounts, stats, equities, outs, phased streets)
+// (Keeps previous features: sit-out, fireworks, final results modal, chat)
 
-/* ------------------ Socket ------------------ */
 const socket = io();
+socket.on("connect", ()=>console.log("[socket] connected", socket.id));
+socket.on("connect_error", err=>{ console.error(err); alert("Socket connection issue."); });
+socket.on("disconnect", r=>console.warn("[socket] disconnected", r));
 
-// Connection diagnostics (helps when "Join" seems to do nothing)
-socket.on("connect", () => console.log("[socket] connected:", socket.id));
-socket.on("connect_error", (err) => {
-  console.error("[socket] connect_error:", err);
-  alert("Could not connect to the server. Please refresh the page.");
-});
-socket.on("disconnect", (reason) => console.warn("[socket] disconnected:", reason));
+const el = id => document.getElementById(id);
+const intro = el("intro"), lobby=el("lobby"), selecting=el("selecting"), revealed=el("revealed"), results=el("results");
+const chatBox=el("chat"), chatLog=el("chatLog"), chatInput=el("chatInput");
+const handBadge=el("handBadge"), roomBadge=el("roomBadge"), scoopOverlay=el("scoopOverlay");
+const finalModal=el("finalModal"), finalTable=el("finalTable");
+const sHands=el("sHands"), sNet=el("sNet"), sScoops=el("sScoops"), sHE=el("sHE"), sPLO=el("sPLO");
 
-/* ------------------ DOM helpers ------------------ */
-const el = (id) => document.getElementById(id);
-const intro = el("intro");
-const lobby = el("lobby");
-const selecting = el("selecting");
-const revealed = el("revealed");
-const results = el("results");
+function show(v){ [intro,lobby,selecting,revealed,results].forEach(x=>x.classList.add("hidden")); v.classList.remove("hidden"); chatBox.classList.remove("hidden"); }
+function escapeHtml(s){ return (s||"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[m])); }
 
-function show(view) {
-  [intro, lobby, selecting, revealed, results].forEach((v) =>
-    v.classList.add("hidden")
-  );
-  view.classList.remove("hidden");
+const LS_TOKEN_KEY="peanutsToken", LS_ROOM_KEY="peanutsRoom", LS_JWT="peanutsJWT";
+function saveIdentity(token, room){ try{localStorage.setItem(LS_TOKEN_KEY, token); localStorage.setItem(LS_ROOM_KEY, room);}catch{} }
+function clearIdentity(){ try{localStorage.removeItem(LS_TOKEN_KEY); localStorage.removeItem(LS_ROOM_KEY);}catch{} }
+function getIdentity(){ try{ return { token:localStorage.getItem(LS_TOKEN_KEY), room:localStorage.getItem(LS_ROOM_KEY) }; }catch{ return {}; } }
+function setJWT(t){ try{ localStorage.setItem(LS_JWT, t);}catch{} }
+function getJWT(){ try{ return localStorage.getItem(LS_JWT);}catch{ return null; } }
+function clearJWT(){ try{ localStorage.removeItem(LS_JWT);}catch{} }
+
+function setBadges(roomCode, handNumber){ if(roomBadge) roomBadge.textContent = roomCode?`Room ${roomCode}`:''; if(handBadge) handBadge.textContent = handNumber?`Hand #${handNumber}`:''; }
+
+/* ---- Auth UI ---- */
+async function api(path, opts={}){
+  const headers = {'Content-Type':'application/json'};
+  const tok = getJWT(); if (tok) headers['Authorization'] = `Bearer ${tok}`;
+  const r = await fetch(path, { method:opts.method||'GET', headers, body: opts.body?JSON.stringify(opts.body):undefined });
+  return r.json();
 }
-
-function escapeHtml(str) {
-  return (str || "").replace(/[&<>"']/g, (m) => ({
-    "&": "&amp;",
-    "<": "&lt;",
-    ">": "&gt;",
-    '"': "&quot;",
-    "'": "&#39;"
-  }[m]));
+async function refreshStats(){
+  const res = await api('/api/my-stats'); if(!res?.ok) { sHands.textContent='0'; sNet.textContent='0'; sScoops.textContent='0'; sHE.textContent='0'; sPLO.textContent='0'; return; }
+  const st = res.stats||{};
+  sHands.textContent = st.hands_played||0;
+  sNet.textContent = (st.total_net>=0?'+':'') + Number(st.total_net||0).toFixed(2);
+  sScoops.textContent = st.scoops||0;
+  sHE.textContent = st.he_wins||0;
+  sPLO.textContent = st.plo_wins||0;
 }
-
-/* ------------------ Card rendering (SVG) ------------------ */
-function cardChip(card) {
-  // card like "Ah", "Td", "7s", "Qc"
-  const rankChar = card[0].toUpperCase();
-  const suitChar = card[1].toLowerCase();
-
-  const rankPretty = (r => (r === 'T' ? '10' : r))(rankChar);
-  const suitSymbol = ({ c: '♣', d: '♦', h: '♥', s: '♠' })[suitChar] || '?';
-  const isRed = (suitChar === 'h' || suitChar === 'd');
-  const colorClass = isRed ? 'red' : 'black';
-
-  const svg = `
-    <svg class="cardsvg" viewBox="0 0 200 280" role="img" aria-label="${rankPretty}${suitSymbol}">
-      <!-- Card background -->
-      <rect x="2" y="2" width="196" height="276" rx="16" ry="16" fill="white" stroke="#333" stroke-width="4"/>
-      
-      <!-- Top-left rank/suit -->
-      <g transform="translate(14, 28)" class="${colorClass}">
-        <text class="rank small corner" x="0" y="0">${rankPretty}</text>
-        <text class="corner" x="0" y="28" style="font:700 24px/1 'Segoe UI Symbol','Apple Color Emoji','Noto Color Emoji'">${suitSymbol}</text>
-      </g>
-      
-      <!-- Bottom-right rank/suit (rotated 180) -->
-      <g transform="translate(186, 252) rotate(180)" class="${colorClass}">
-        <text class="rank small corner" x="0" y="0">${rankPretty}</text>
-        <text class="corner" x="0" y="28" style="font:700 24px/1 'Segoe UI Symbol','Apple Color Emoji','Noto Color Emoji'">${suitSymbol}</text>
-      </g>
-      
-      <!-- Large center suit -->
-      <g class="${colorClass}">
-        <text class="suit center" x="100" y="160" text-anchor="middle">${suitSymbol}</text>
-      </g>
-    </svg>
-  `;
-
-  const div = document.createElement("div");
-  div.className = "cardchip";
-  div.setAttribute("data-card", card);
-  div.innerHTML = svg;
-  return div;
-}
-
-/* ------------------ Client state ------------------ */
-const state = {
-  room: null,
-  you: null,
-  isHost: false,
-  yourCards: [],
-  pickH: new Set(), // 2 for Hold'em
-  pickP: new Set(), // 4 for PLO
+el("loginBtn").onclick = async ()=>{
+  const username = el("loginUser").value.trim(), password=el("loginPass").value;
+  if (!username || !password) return alert("Enter username and password");
+  const res = await api('/api/login', { method:'POST', body:{ username, password }});
+  if (!res?.ok) return alert(res?.error||'Login failed');
+  setJWT(res.token); await refreshStats(); alert(`Welcome back, ${res.username}!`);
 };
+el("regBtn").onclick = async ()=>{
+  const username = el("regUser").value.trim(), password=el("regPass").value;
+  if (!username || !password) return alert("Enter username and password");
+  const res = await api('/api/register', { method:'POST', body:{ username, password }});
+  if (!res?.ok) return alert(res?.error||'Register failed');
+  setJWT(res.token); await refreshStats(); alert(`Account created. Welcome, ${res.username}!`);
+};
+el("logoutBtn").onclick = ()=>{ clearJWT(); refreshStats(); alert("Logged out."); };
 
-/* ------------------ Rendering ------------------ */
-function renderPlayers(players) {
-  const c = el("players");
-  c.innerHTML = "";
-  (players || []).forEach((p) => {
-    const row = document.createElement("div");
-    row.className = "playerRow";
-    const bal = Number(p.balance || 0);
-    const balStr = (bal >= 0 ? "+" : "") + bal.toFixed(2);
+/* ---- Cards ---- */
+function cardChip(card){
+  const r=card[0]?.toUpperCase(), s=card[1]?.toLowerCase();
+  const rp=(r==='T'?'10':r), sym=({c:'♣',d:'♦',h:'♥',s:'♠'}[s]||'?'); const red=(s==='h'||s==='d');
+  const svg=`
+   <svg class="cardsvg" viewBox="0 0 200 280" role="img" aria-label="${rp}${sym}">
+     <rect x="2" y="2" width="196" height="276" rx="16" ry="16" fill="white" stroke="#333" stroke-width="4"/>
+     <g transform="translate(14,28)" class="${red?'red':'black'}"><text class="rank small corner" x="0" y="0">${rp}</text><text class="corner" x="0" y="28" style="font:700 24px/1 'Segoe UI Symbol'">${sym}</text></g>
+     <g transform="translate(186,252) rotate(180)" class="${red?'red':'black'}"><text class="rank small corner" x="0" y="0">${rp}</text><text class="corner" x="0" y="28" style="font:700 24px/1 'Segoe UI Symbol'">${sym}</text></g>
+     <g class="${red?'red':'black'}"><text class="suit center" x="100" y="160" text-anchor="middle">${sym}</text></g>
+   </svg>`;
+  const d=document.createElement('div'); d.className='cardchip'; d.setAttribute('data-card',card); d.innerHTML=svg; return d;
+}
+
+/* ---- State ---- */
+const state={ room:null, token:null, you:null, yourCards:[], pickH:new Set(), pickP:new Set() };
+
+/* ---- Rendering ---- */
+function renderPlayers(players=[]){
+  const c=el("players"); c.innerHTML='';
+  players.forEach(p=>{
+    const row=document.createElement('div'); row.className='playerRow';
+    const bal=Number(p.balance||0), balStr=(bal>=0?'+':'')+bal.toFixed(2);
     row.innerHTML = `
       <div>
         <span class="namechip">${escapeHtml(p.name)}</span>
-        ${p.isHost ? '<span class="badge">Host</span>' : ""}
-        ${p.locked ? '<span class="badge">Locked</span>' : ""}
+        ${p.isHost?'<span class="badge">Host</span>':''}
+        ${p.present?'':'<span class="badge">Away</span>'}
+        ${p.sitOut?'<span class="badge warn">Sitting Out</span>':''}
+        ${p.locked?'<span class="badge">Locked</span>':''}
       </div>
-      <div class="${bal >= 0 ? "positive" : "negative"} mono">${balStr}</div>
-    `;
+      <div class="${bal>=0?'positive':'negative'} mono">${balStr}</div>`;
     c.appendChild(row);
   });
 }
-
-function renderBoard(targetId, cards) {
-  const cont = el(targetId);
-  cont.innerHTML = "";
-  (cards || []).forEach((c) => cont.appendChild(cardChip(c)));
-}
-
-function renderHand(cards) {
-  const cont = el("yourHand");
-  cont.innerHTML = "";
-  (cards || []).forEach((card) => {
-    const chip = cardChip(card);
-    chip.addEventListener("click", () => toggleSelection(card));
-    if (state.pickH.has(card) || state.pickP.has(card)) chip.classList.add("selected");
-    cont.appendChild(chip);
+function renderBoard(id,cards){ const c=el(id); c.innerHTML=''; (cards||[]).forEach(x=>c.appendChild(cardChip(x))); }
+function renderHand(cards){
+  const c=el("yourHand"); c.innerHTML='';
+  (cards||[]).forEach(card=>{
+    const chip=cardChip(card);
+    chip.addEventListener('click',()=>toggleSelection(card));
+    if(state.pickH.has(card)||state.pickP.has(card)) chip.classList.add('selected');
+    c.appendChild(chip);
   });
 }
-
-function renderPickBoxes() {
-  const h = el("pickHoldem");
-  const p = el("pickPLO");
-  h.innerHTML = "";
-  p.innerHTML = "";
-  Array.from(state.pickH).forEach((card) => h.appendChild(cardChip(card)));
-  Array.from(state.pickP).forEach((card) => p.appendChild(cardChip(card)));
+function renderPickBoxes(){
+  const h=el("pickHoldem"), p=el("pickPLO"); h.innerHTML=''; p.innerHTML='';
+  Array.from(state.pickH).forEach(c=>h.appendChild(cardChip(c)));
+  Array.from(state.pickP).forEach(c=>p.appendChild(cardChip(c)));
 }
 
-/* ------------------ Selection logic ------------------ */
-function toggleSelection(card) {
-  const inH = state.pickH.has(card);
-  const inP = state.pickP.has(card);
-
-  if (!inH && !inP) {
-    if (state.pickH.size < 2) state.pickH.add(card);
-    else if (state.pickP.size < 4) state.pickP.add(card);
-    else return; // already full
-  } else if (inH) {
-    state.pickH.delete(card);
-  } else if (inP) {
-    state.pickP.delete(card);
-  }
-
-  renderHand(state.yourCards);
-  renderPickBoxes();
+function toggleSelection(card){
+  const inH=state.pickH.has(card), inP=state.pickP.has(card);
+  if(!inH && !inP){ if(state.pickH.size<2) state.pickH.add(card); else if(state.pickP.size<4) state.pickP.add(card); else return; }
+  else if(inH) state.pickH.delete(card);
+  else if(inP) state.pickP.delete(card);
+  renderHand(state.yourCards); renderPickBoxes();
 }
 
-/* ------------------ Helper: validate inputs ------------------ */
-function normRoom(code) {
-  return (code || "").toUpperCase().trim();
-}
-function isValidRoom(code) {
-  return /^[A-Z0-9]{3,8}$/.test(code);
-}
+/* ---- Join flow ---- */
+function normRoom(s){ return (s||'').toUpperCase().trim(); }
+function isValidRoom(s){ return /^[A-Z0-9]{3,8}$/.test(s); }
 
-/* ------------------ UI events ------------------ */
-el("joinBtn").onclick = () => {
-  const roomRaw = el("room").value;
-  const nameRaw = el("name").value;
-
-  const roomCode = normRoom(roomRaw);
-  const name = (nameRaw || "Player").trim();
-
-  if (!isValidRoom(roomCode)) {
-    alert("Room code must be 3–8 letters/numbers.");
-    el("room").focus();
-    return;
-  }
-  if (!name) {
-    alert("Please enter your name.");
-    el("name").focus();
-    return;
-  }
-
-  // Disable the Join button briefly to prevent double clicks
-  const joinBtn = el("joinBtn");
-  joinBtn.disabled = true;
-  joinBtn.textContent = "Joining…";
-
-  let responded = false;
-  socket.emit("joinRoom", { roomCode, name }, (res) => {
-    responded = true;
-    joinBtn.disabled = false;
-    joinBtn.textContent = "Join";
-
-    if (!res?.ok) {
-      console.warn("[joinRoom] error:", res);
-      alert(res?.error || "Failed to join room.");
-      return;
-    }
-
-    state.room = roomCode;
-    state.you = res.name;
-    state.isHost = !!res.isHost;
-    console.log(`[joinRoom] joined ${roomCode} as ${res.name}, host=${state.isHost}`);
-    show(lobby);
+el("joinBtn").onclick = ()=>{
+  const room=normRoom(el("room").value), name=(el("name").value||'Player').trim();
+  if(!isValidRoom(room)) return alert('Room code must be 3–8 letters/numbers');
+  const joinBtn=el("joinBtn"); joinBtn.disabled=true; joinBtn.textContent='Joining…';
+  const { token:existingToken } = getIdentity();
+  const authToken = getJWT();
+  socket.emit('joinRoom', { roomCode:room, name, token:existingToken, authToken }, (res)=>{
+    joinBtn.disabled=false; joinBtn.textContent='Join';
+    if(!res?.ok) return alert(res?.error||'Join failed');
+    state.room=room; state.token=res.token; state.you=res.name; saveIdentity(res.token, room);
+    setBadges(room, 0); show(lobby);
+    refreshStats().catch(()=>{});
   });
-
-  // Safety net: if callback never comes back (e.g. connection issue)
-  setTimeout(() => {
-    if (!responded) {
-      joinBtn.disabled = false;
-      joinBtn.textContent = "Join";
-      alert("Join request timed out. Please check your connection and try again.");
-    }
-  }, 8000);
 };
 
-el("setAnte").onclick = () => {
-  if (!state.isHost) return alert("Only the host can set the ante.");
-  const anteVal = Number(el("anteInput").value) || 0;
-  socket.emit("setAnte", anteVal);
-};
+el("logoutBtn").onclick = ()=>{ clearJWT(); refreshStats(); };
 
-el("startBtn").onclick = () => {
-  if (!state.isHost) return alert("Only the host can start the hand.");
-  socket.emit("startHand");
+// Sit out / controls
+el("sitBtn").onclick = ()=>{
+  const btn=el("sitBtn"); const on=btn.getAttribute('data-on')==='1'; socket.emit('toggleSitOut', !on);
 };
+el("setAnte").onclick = ()=>{ const v=Number(el("anteInput").value)||0; socket.emit('setAnte', v); };
+el("startBtn").onclick = ()=> socket.emit('startHand');
+el("nextBtn").onclick = ()=> socket.emit('nextHand');
 
-el("lockBtn").onclick = () => {
-  if (state.pickH.size !== 2 || state.pickP.size !== 4)
-    return alert("Pick 2 for Hold’em and 4 for PLO before locking.");
-  socket.emit(
-    "makeSelections",
-    { holdemTwo: Array.from(state.pickH), ploFour: Array.from(state.pickP) },
-    (res) => {
-      if (!res?.ok) alert(res?.error || "Could not lock selections.");
-    }
-  );
-};
+const termBtn = document.getElementById('terminateBtn');
+if(termBtn) termBtn.onclick = ()=>{ if(confirm('Terminate table?')) socket.emit('terminateTable'); };
 
-el("nextBtn").onclick = () => {
-  if (!state.isHost) return alert("Only the host can start the next hand.");
-  socket.emit("nextHand");
-};
+// Auto-rejoin
+window.addEventListener('load', ()=>{
+  refreshStats().catch(()=>{});
+  const { token, room } = getIdentity();
+  if(token && room && isValidRoom(room)){
+    const roomInput=el("room"); if(roomInput) roomInput.value=room;
+    socket.emit('joinRoom', { roomCode:room, name:'', token, authToken:getJWT() }, (res)=>{
+      if(res?.ok){ state.room=room; state.token=res.token; state.you=res.name; setBadges(room,0); show(lobby); }
+      else show(intro);
+    });
+  } else show(intro);
+});
 
-/* ------------------ Socket events ------------------ */
-socket.on("roomUpdate", (data) => {
+/* ---- Socket events ---- */
+socket.on('roomUpdate', data=>{
+  setBadges(getIdentity().room, data.handNumber||0);
   renderPlayers(data.players);
-  el("anteInput").value = data.ante || 0;
+  el("anteInput").value = data.ante||0;
 
-  if (data.stage === "lobby") show(lobby);
-  else if (data.stage === "selecting") show(selecting);
-  else if (data.stage === "revealed") {
-    show(revealed);
-    renderBoard("board", data.board || []);
-  } else if (data.stage === "results") {
-    show(results);
+  // reflect sit-out
+  const me=(data.players||[]).find(p=>p.id===state.token);
+  const sitBtn=el("sitBtn");
+  if(sitBtn){ const s=!!me?.sitOut; sitBtn.textContent=s?'Return to Play':'Sit Out'; sitBtn.setAttribute('data-on', s?'1':'0'); }
+
+  // live board (revealed/results)
+  if (data.stage==='revealed' || data.stage==='results') {
+    renderBoard('board', data.board||[]);
+    // equities/outs HUD
+    renderEquities('equitiesHE','Hold’em', data.equities?.he, data.players||[]);
+    renderEquities('equitiesPLO','PLO', data.equities?.plo, data.players||[]);
+    renderOuts('outsHE', data.outs?.he);
+    renderOuts('outsPLO', data.outs?.plo);
   }
+
+  if (data.stage==='lobby') show(lobby);
+  else if (data.stage==='selecting') show(selecting);
+  else if (data.stage==='revealed') show(revealed);
+  else if (data.stage==='results') show(results);
 });
 
-socket.on("yourCards", ({ cards }) => {
-  state.yourCards = cards || [];
-  state.pickH = new Set();
-  state.pickP = new Set();
-  renderHand(state.yourCards);
-  renderPickBoxes();
-  show(selecting);
+socket.on('streetUpdate', payload=>{
+  // Optional: could animate between streets; roomUpdate already carries equities/outs
 });
 
-socket.on("results", (payload) => {
-  renderBoard("finalBoard", payload.board || []);
+socket.on('yourCards', ({cards})=>{
+  state.yourCards=cards||[]; state.pickH=new Set(); state.pickP=new Set();
+  renderHand(state.yourCards); renderPickBoxes(); show(selecting);
+});
 
-  const winnersDiv = el("winners");
-  const nameOf = (sid) => payload.picks[sid]?.name || sid;
-  const holdemNames = (payload.winners?.holdem || []).map(nameOf).join(", ");
-  const ploNames = (payload.winners?.plo || []).map(nameOf).join(", ");
-  const scoopNames = (payload.scoops || []).map(nameOf).join(", ");
-
-  let html = "";
-  html += `<p><strong>Hold’em:</strong> ${escapeHtml(holdemNames || "-")}</p>`;
-  html += `<p><strong>PLO:</strong> ${escapeHtml(ploNames || "-")}</p>`;
-  if (payload.scoops && payload.scoops.length) {
+socket.on('results', payload=>{
+  setBadges(getIdentity().room, payload.handNumber||0);
+  renderBoard('finalBoard', payload.board||[]);
+  const winnersDiv=el("winners");
+  const nameOf = sid=> payload.picks[sid]?.name || sid;
+  const holdemNames=(payload.winners?.holdem||[]).map(nameOf).join(', ');
+  const ploNames=(payload.winners?.plo||[]).map(nameOf).join(', ');
+  const scoopNames=(payload.scoops||[]).map(nameOf).join(', ');
+  let html = `<p><strong>Hold’em:</strong> ${escapeHtml(holdemNames||'-')}</p>
+              <p><strong>PLO:</strong> ${escapeHtml(ploNames||'-')}</p>`;
+  if(payload.scoops && payload.scoops.length){
     html += `<p>💥 SCOOP by ${escapeHtml(scoopNames)}</p>`;
+    launchScoopFireworks(scoopNames);
   }
   winnersDiv.innerHTML = html;
-
   show(results);
 });
+
+socket.on('finalResults', ({handNumber, ante, players})=>{
+  finalTable.innerHTML='';
+  const hdr=document.createElement('div'); hdr.className='finalRow finalHeader'; hdr.innerHTML='<div>Player</div><div class="mono">Balance</div>'; finalTable.appendChild(hdr);
+  players.forEach(p=>{
+    const row=document.createElement('div'); row.className='finalRow';
+    const bal=(p.balance>=0?'+':'') + Number(p.balance||0).toFixed(2);
+    row.innerHTML = `<div>${escapeHtml(p.name)}</div><div class="mono ${p.balance>=0?'positive':'negative'}">${bal}</div>`;
+    finalTable.appendChild(row);
+  });
+  el("finalTitle").textContent = `Final Results — ${getIdentity().room||''} (Hands: ${handNumber||0})`;
+  finalModal.classList.add('show');
+});
+socket.on('terminated', ()=>{ clearIdentity(); /* keep modal */ });
+
+/* Chat */
+socket.on('chatBacklog', (msgs=[])=>{ chatLog.innerHTML=''; msgs.forEach(addChatLine); });
+socket.on('chatMessage', msg=>addChatLine(msg));
+function addChatLine(msg){
+  const d=document.createElement('div'); d.className='chatmsg' + (msg.system?' system':'');
+  const who = msg.system ? '🛈' : escapeHtml(msg.from||'Unknown');
+  const text=escapeHtml(msg.text||''); const time=new Date(msg.ts||Date.now()).toLocaleTimeString();
+  d.innerHTML = `<span class="who">${who}</span> <span class="t">${text}</span> <span class="mono" style="opacity:.6;float:right">${time}</span>`;
+  chatLog.appendChild(d); chatLog.scrollTop = chatLog.scrollHeight;
+}
+el("chatSend").onclick = ()=>sendChat();
+chatInput.addEventListener('keydown', e=>{ if(e.key==='Enter') sendChat(); });
+function sendChat(){ const t=(chatInput.value||'').trim(); if(!t) return; socket.emit('chatMessage', t); chatInput.value=''; }
+
+/* Equities / Outs renderers */
+function renderEquities(targetId, label, eqMap, players){
+  const box=el(targetId); box.innerHTML='';
+  if(!eqMap) return;
+  players.forEach(p=>{
+    const eq = eqMap[p.id] || { win:0, tie:0 };
+    const row=document.createElement('div'); row.className='eqrow';
+    row.innerHTML = `<div class="name">${escapeHtml(p.name)}</div>
+                     <div class="val mono">${eq.win.toFixed(1)}% win &nbsp; ${eq.tie.toFixed(1)}% tie</div>`;
+    box.appendChild(row);
+  });
+}
+function renderOuts(targetId, outMap){
+  const box=el(targetId); box.innerHTML='';
+  if(!outMap) return;
+  for(const [pid, arr] of Object.entries(outMap)){
+    const row=document.createElement('div'); row.className='outrow';
+    row.appendChild(Object.assign(document.createElement('span'),{textContent:'Outs:'}));
+    (arr||[]).slice(0,18).forEach(c=>{
+      const tag=document.createElement('span'); tag.className='outcard'; tag.textContent=c;
+      row.appendChild(tag);
+    });
+    // append as block
+    const wrap=document.createElement('div');
+    const nameSpan=document.createElement('div'); nameSpan.textContent = `For ${((window._playersCache||[]).find(p=>p.id===pid)||{}).name || pid}:`;
+    box.appendChild(nameSpan); box.appendChild(row);
+  }
+}
+
+/* Fireworks */
+function launchScoopFireworks(name){
+  el("scoopTitle").textContent = `SCOOP by: ${name}!`;
+  scoopOverlay.classList.add('show');
+  setTimeout(()=>scoopOverlay.classList.remove('show'), 3500);
+}
+
+/* Lock / Next */
+el("lockBtn").onclick = ()=>{
+  if(state.pickH.size!==2 || state.pickP.size!==4) return alert("Pick 2 for Hold’em and 4 for PLO.");
+  socket.emit('makeSelections', { holdemTwo:Array.from(state.pickH), ploFour:Array.from(state.pickP) }, res=>{ if(!res?.ok) alert(res?.error||'Could not lock'); });
+};
+el("finalClose").onclick = ()=>{ finalModal.classList.remove('show'); show(intro); };
