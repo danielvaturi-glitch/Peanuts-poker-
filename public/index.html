@@ -4,15 +4,15 @@
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
   <title>Peanuts Poker</title>
-  <link rel="stylesheet" href="/styles.css?v=12"/>
+  <link rel="stylesheet" href="/styles.css?v=13"/>
   <style>
-    /* table view additions */
     .tableGrid { display:grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap:12px; margin-top:12px; }
     .seat { border:1px solid #2b4f77; border-radius:12px; padding:10px; background:rgba(10,21,34,0.6); }
     .seat .pname { font-weight:700; margin-bottom:6px; }
     .handRow { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
     .handRow .label { width:54px; opacity:.8; }
     .eq { font-weight:700; margin-left:auto; white-space:nowrap; }
+    .revealBar { display:flex; gap:8px; align-items:center; margin-top:10px; }
   </style>
 </head>
 <body>
@@ -74,15 +74,19 @@
         <button id="lockBtn">Lock Selections</button>
       </div>
 
-      <!-- Revealed (table view) -->
+      <!-- Revealed (table view, manual reveals) -->
       <div id="revealed" class="hidden">
         <h2>Board</h2>
         <div class="board" id="board"></div>
+        <div class="revealBar">
+          <button id="revealBtn">Reveal Flop</button>
+          <span id="revealHint" class="mono" style="opacity:.8"></span>
+        </div>
         <h3>Players</h3>
         <div id="tableGrid" class="tableGrid"></div>
       </div>
 
-      <!-- Results -->
+      <!-- Results (persists until Next Hand) -->
       <div id="results" class="hidden">
         <h2>Results</h2>
         <div class="board" id="finalBoard"></div>
@@ -97,36 +101,3 @@
         <h3>Room Chat</h3>
         <div id="chatLog" class="chatlog"></div>
         <div class="row">
-          <input id="chatInput" placeholder="Type a message…"/>
-          <button id="chatSend">Send</button>
-        </div>
-      </div>
-
-    </div>
-  </div>
-
-  <!-- Fireworks Overlay -->
-  <div id="scoopOverlay" class="overlay">
-    <div class="fireworks">
-      <div class="burst b1"></div>
-      <div class="burst b2"></div>
-      <div class="burst b3"></div>
-    </div>
-    <div class="scoopText" id="scoopTitle">SCOOP!</div>
-  </div>
-
-  <!-- Final Results Modal -->
-  <div id="finalModal" class="modal">
-    <div class="modalContent">
-      <h2 id="finalTitle">Final Results</h2>
-      <div id="finalTable" class="finalTable"></div>
-      <div class="row" style="justify-content:flex-end;">
-        <button id="finalClose">Close</button>
-      </div>
-    </div>
-  </div>
-
-  <script src="/socket.io/socket.io.js"></script>
-  <script src="/client.js?v=12"></script>
-</body>
-</html>
