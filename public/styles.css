@@ -199,3 +199,16 @@ button.secondary {
   .suit { font-size: 38px; }
   .pickBox { min-height: 120px; }
 }
+/* (same base as before; only additions) */
+
+.authRow { display:grid; grid-template-columns: repeat(3, minmax(220px, 1fr)); gap: 12px; margin-bottom: 12px; }
+.authCol { background: rgba(10,21,34,0.6); border: 1px solid #2b4f77; border-radius: 10px; padding: 10px; }
+.authCol h3 { margin-top: 0; }
+
+#equitiesArea { background: rgba(10,21,34,0.6); border:1px solid #2b4f77; border-radius:10px; padding:10px; margin-top:10px; }
+#equitiesHE, #equitiesPLO, #outsHE, #outsPLO { display:flex; flex-direction: column; gap:6px; margin-bottom: 8px; }
+.eqrow { display:flex; justify-content: space-between; gap: 12px; }
+.eqrow .name { min-width: 140px; }
+.eqrow .val { font-weight:700; }
+.outrow { display:flex; gap:8px; flex-wrap:wrap; }
+.outcard { font-family: ui-monospace, Menlo, Consolas, monospace; padding: 2px 6px; border:1px solid #2b4f77; border-radius:6px; background: rgba(255,255,255,0.06); }
