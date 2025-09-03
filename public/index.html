@@ -1,34 +1,63 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta
-    name="viewport"
-    content="width=device-width, initial-scale=1, viewport-fit=cover"
-  />
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
   <title>Peanuts Poker</title>
-  <link rel="stylesheet" href="/styles.css?v=2" />
+  <link rel="stylesheet" href="/styles.css?v=9"/>
 </head>
 <body>
   <div id="app">
     <div class="card">
+
+      <div class="topbar">
+        <div id="roomBadge" class="badge big"></div>
+        <div id="handBadge" class="badge big"></div>
+      </div>
+
       <h1>Peanuts Poker</h1>
 
-      <!-- Intro / Join -->
+      <!-- Intro / Auth / Join -->
       <div id="intro">
-        <p>
-          Enter a room code to join (3–8 letters/numbers). Share the same code with friends (max 6 per room).
-        </p>
+        <div class="authRow">
+          <div class="authCol">
+            <h3>Login</h3>
+            <input id="loginUser" placeholder="Username"/>
+            <input id="loginPass" placeholder="Password" type="password"/>
+            <button id="loginBtn">Login</button>
+          </div>
+          <div class="authCol">
+            <h3>Register</h3>
+            <input id="regUser" placeholder="Username"/>
+            <input id="regPass" placeholder="Password" type="password"/>
+            <button id="regBtn">Create Account</button>
+          </div>
+          <div class="authCol">
+            <h3>Your Lifetime Results</h3>
+            <div id="ltStats">
+              <div>Hands Played: <span id="sHands">0</span></div>
+              <div>Total Net: <span id="sNet" class="mono">0</span></div>
+              <div>Scoops: <span id="sScoops">0</span></div>
+              <div>Hold’em Wins: <span id="sHE">0</span></div>
+              <div>PLO Wins: <span id="sPLO">0</span></div>
+            </div>
+          </div>
+        </div>
+
+        <hr/>
+
+        <p>Enter a room code to join (3–8 letters/numbers). Share the same code with friends (max 6 per room).</p>
         <div class="row">
           <label for="room">Room Code</label>
-          <input id="room" placeholder="e.g., PEANUTS" autocomplete="off" />
+          <input id="room" placeholder="e.g., PEANUTS" autocomplete="off"/>
         </div>
         <div class="row">
           <label for="name">Your Name</label>
-          <input id="name" placeholder="e.g., Daniel" autocomplete="off" />
+          <input id="name" placeholder="e.g., Daniel" autocomplete="off"/>
         </div>
         <div class="row">
           <button id="joinBtn">Join</button>
+          <button id="logoutBtn" class="secondary">Logout</button>
         </div>
       </div>
 
@@ -38,9 +67,11 @@
         <div id="players"></div>
         <div class="row">
           <label for="anteInput">Ante:</label>
-          <input id="anteInput" type="number" min="0" step="1" />
-          <button id="setAnte" class="secondary" title="Host only">Set Ante</button>
-          <button id="startBtn" title="Host only">Start Hand</button>
+          <input id="anteInput" type="number" min="0" step="1"/>
+          <button id="setAnte" class="secondary">Set Ante</button>
+          <button id="startBtn">Start Hand</button>
+          <button id="sitBtn" data-on="0" class="secondary">Sit Out</button>
+          <button id="terminateBtn" class="danger" title="Host only">Terminate Table</button>
         </div>
       </div>
 
@@ -59,7 +90,6 @@
             <div id="pickPLO" class="pickBox"></div>
           </div>
         </div>
-
         <button id="lockBtn">Lock Selections</button>
       </div>
 
@@ -67,6 +97,14 @@
       <div id="revealed" class="hidden">
         <h2>Board</h2>
         <div class="board" id="board"></div>
+        <div id="equitiesArea">
+          <h3>Win %</h3>
+          <div id="equitiesHE"></div>
+          <div id="equitiesPLO"></div>
+          <h3>Outs</h3>
+          <div id="outsHE"></div>
+          <div id="outsPLO"></div>
+        </div>
       </div>
 
       <!-- Results -->
@@ -75,23 +113,44 @@
         <div class="board" id="finalBoard"></div>
         <div id="winners"></div>
         <div class="row">
-          <button id="nextBtn" title="Host only">Next Hand</button>
+          <button id="nextBtn">Next Hand</button>
         </div>
       </div>
 
-      <!-- (Optional) Chat container reserved; safe to leave present/hidden -->
-      <div id="chat" class="hidden">
+      <!-- Chat -->
+      <div id="chat">
         <h3>Room Chat</h3>
         <div id="chatLog" class="chatlog"></div>
         <div class="row">
-          <input id="chatInput" placeholder="Type a message…" />
+          <input id="chatInput" placeholder="Type a message…"/>
           <button id="chatSend">Send</button>
         </div>
       </div>
     </div>
   </div>
 
-  <!-- Socket.IO client must load before client.js -->
-<link rel="stylesheet" href="/styles.css?v=6" />
-<script src="/socket.io/socket.io.js"></script>
-<script src="/client.js?v=6"></script>
+  <!-- Fireworks Overlay for SCOOP -->
+  <div id="scoopOverlay" class="overlay">
+    <div class="fireworks">
+      <div class="burst b1"></div>
+      <div class="burst b2"></div>
+      <div class="burst b3"></div>
+    </div>
+    <div class="scoopText" id="scoopTitle">SCOOP!</div>
+  </div>
+
+  <!-- Final Results Modal -->
+  <div id="finalModal" class="modal">
+    <div class="modalContent">
+      <h2 id="finalTitle">Final Results</h2>
+      <div id="finalTable" class="finalTable"></div>
+      <div class="row" style="justify-content:flex-end;">
+        <button id="finalClose">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/client.js?v=9"></script>
+</body>
+</html>
