@@ -4,7 +4,7 @@
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
   <title>Peanuts Poker</title>
-  <link rel="stylesheet" href="/styles.css?v=15"/>
+  <link rel="stylesheet" href="/styles.css?v=16"/>
   <style>
     .tableGrid { display:grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap:12px; margin-top:12px; }
     .seat { border:1px solid #2b4f77; border-radius:12px; padding:10px; background:rgba(10,21,34,0.6); }
@@ -119,7 +119,12 @@
         </div>
         <div class="board" id="finalBoard"></div>
         <div id="winners"></div>
-        <div class="row">
+
+        <h3>Final Table</h3>
+        <!-- NEW: keep everyone’s locked hands visible until Next Hand -->
+        <div id="tableGridFinal" class="tableGrid"></div>
+
+        <div class="row" style="margin-top:10px;">
           <button id="nextBtn">Next Hand</button>
         </div>
       </div>
@@ -159,6 +164,6 @@
   </div>
 
   <script src="/socket.io/socket.io.js"></script>
-  <script src="/client.js?v=15"></script>
+  <script src="/client.js?v=16"></script>
 </body>
 </html>
