@@ -1,7 +1,6 @@
-
 // server.js — Peanuts Poker (no DB/auth)
 // Manual street reveals + selection countdown with auto-lock.
-// Anyone can set ante & selection timer in lobby. Back-to-lobby is client-only view.
+// Anyone can set ante & selection timer in lobby.
 
 const express = require('express');
 const http = require('http');
@@ -73,8 +72,6 @@ function evalPLO(hole4,board){
   for(const h of choose2(hole4)) for(const b of choose3(board)){ const s=eval5(h.concat(b)); if(!best||cmp5(s,best)>0) best=s; }
   return best;
 }
-
-// Monte Carlo equities
 function monteCarloEquity(players, board, deck, game, iters=1500){
   const wins=new Map(players.map(p=>[p.id,0]));
   const ties=new Map(players.map(p=>[p.id,0]));
@@ -173,7 +170,6 @@ function publicState(room){
     selectionRemainingMs: remaining
   };
 }
-
 function buildPicks(room){
   const p={};
   for(const [tok,seat] of room.holes.entries()){
@@ -181,7 +177,6 @@ function buildPicks(room){
   }
   return p;
 }
-
 function recomputeAndEmit(room, code, stageLabel){
   const participants=[...room.holes.entries()].map(([tok,seat])=>({ id:tok, hole2:seat.pickHoldem, hole4:seat.pickPLO }));
   const d = cardsLeft(room);
@@ -191,25 +186,19 @@ function recomputeAndEmit(room, code, stageLabel){
   io.to(code).emit('roomUpdate', publicState(room));
   io.to(code).emit('streetUpdate', { stage:stageLabel, board:room.board, equities:room.equities, picks: buildPicks(room) });
 }
-
 function clearSelectionTimer(room){
   if(room.selectionTimer){ clearInterval(room.selectionTimer); room.selectionTimer=null; }
   room.selectionDeadline=null;
 }
-
 function startSelectionTimer(room, code){
   clearSelectionTimer(room);
   room.selectionDeadline = Date.now() + (room.selectionSeconds*1000);
   room.selectionTimer = setInterval(()=>{
-    // broadcast time remaining via roomUpdate ticks (lightweight)
     io.to(code).emit('roomUpdate', publicState(room));
-    // if time is up -> auto-lock missing players and proceed
     if(Date.now() >= room.selectionDeadline){
       for(const [tok, seat] of room.holes.entries()){
         if(!seat.locked){
-          // auto-pick: random 2 for HE and random 4 for PLO from their 6
           const cards=seat.hole.slice();
-          // shuffle small array
           for(let i=cards.length-1;i>0;i--){const j=(Math.random()*(i+1))|0; [cards[i],cards[j]]=[cards[j],cards[i]];}
           seat.pickHoldem = cards.slice(0,2);
           seat.pickPLO   = cards.slice(0,4);
@@ -280,7 +269,7 @@ io.on('connection', socket => {
   socket.on('setSelectionSeconds', secs=>{
     const code=socket.data.roomCode; if(!code) return;
     const room=getRoom(code);
-    if(room.stage!=='lobby') return; // only configurable before a hand
+    if(room.stage!=='lobby') return; // only before a hand
     const s=Math.max(5, Math.min(180, Number(secs)||30));
     room.selectionSeconds=s;
     systemMsg(room, `Selection timer set to ${s}s.`);
@@ -388,9 +377,6 @@ io.on('connection', socket => {
     if(!room||!tok||!room.players.has(tok)) return;
     const p=room.players.get(tok); p.present=false; p.lastSeen=Date.now();
     room.socketIndex.delete(socket.id);
-    if(room.stage==='selecting'){
-      // do nothing: they can come back before timer ends; timer will auto-lock if needed
-    }
     systemMsg(room, `${p.name} left the table.`);
     io.to(code).emit('chatMessage',{from:'system',text:`${p.name} left the table.`,ts:Date.now(),system:true});
     io.to(code).emit('roomUpdate', publicState(room));
