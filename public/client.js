@@ -3,7 +3,7 @@
 
 const socket = io();
 socket.on("connect", ()=>console.log("[socket] connected", socket.id));
-socket.on("connect_error", err=>{ console.error(err); alert("Socket connection issue."); });
+socket.on("connect_error", err=>{ console.error("[socket connect_error]", err); });
 socket.on("disconnect", r=>console.warn("[socket] disconnected", r));
 
 const el=id=>document.getElementById(id);
