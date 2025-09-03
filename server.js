@@ -1,4 +1,9 @@
-// server.js — Peanuts Poker (fast streets + instant lock progress + river winners = 100% equities)
+// server.js — Peanuts Poker
+// - Persistent balances across hands
+// - Per-player stats (handsPlayed, winsHE, winsPLO, scoops)
+// - Final Results modal with summary
+// - Robust mid-hand rejoin: resend hole cards on join or on request
+// - Fast equities & instant stage transitions
 
 const express = require('express');
 const http = require('http');
@@ -95,14 +100,14 @@ function itersFor(boardLen){
   if(boardLen<=0) return 600; // preflop
   if(boardLen===3) return 400; // flop
   if(boardLen===4) return 300; // turn
-  return 0; // river -> we will mark winners as 100% deterministically
+  return 0; // river -> final is deterministic; winners set to 100%
 }
 
 // -------- Rooms --------
 /**
 rooms: Map<code, {
   hostToken: string|null,
-  players: Map<token,{name,balance,present,lastSeen,sitOut}>,
+  players: Map<token,{name,balance,present,lastSeen,sitOut,stats}>,
   socketIndex: Map<socketId, token>,
   stage: 'lobby'|'selecting'|'revealed'|'results',
   deck: string[],
@@ -194,8 +199,7 @@ function recomputeAndEmitFast(room, code, stageLabel){
     const ploEq = itPLO>0 ? monteCarloEquity(participants.map(p=>({id:p.id,hole4:p.hole4})), room.board, d, 'plo', itPLO) : {};
     room.equities={he:heEq, plo:ploEq};
   } else {
-    // On river we will set 100% winners in scoreAndFinish().
-    room.equities={he:{}, plo:{}};
+    room.equities={he:{}, plo:{}}; // river -> set to 100% in scoreAndFinish
   }
 
   io.to(code).emit('roomUpdate', publicState(room));
@@ -249,7 +253,10 @@ io.on('connection', socket => {
         const names=new Set([...room.players.values()].map(p=>p.name));
         let i=1,cand=finalName; while(names.has(cand)){cand=`${finalName} ${i++}`;}
         useToken=genToken();
-        room.players.set(useToken,{ name:cand, balance:0, present:true, lastSeen:Date.now(), sitOut:false });
+        room.players.set(useToken,{
+          name:cand, balance:0, present:true, lastSeen:Date.now(), sitOut:false,
+          stats:{ handsPlayed:0, winsHE:0, winsPLO:0, scoops:0 }
+        });
         if(!room.hostToken) room.hostToken=useToken;
         systemMsg(room, `${cand} joined the table.`);
       } else {
@@ -262,11 +269,26 @@ io.on('connection', socket => {
       socket.data.roomCode=code;
       socket.data.token=useToken;
 
+      // If the player is already in the current hand (selecting), re-send their hole cards
+      const seat = room.holes.get(useToken);
+      if (room.stage==='selecting' && seat) {
+        io.to(socket.id).emit('yourCards', { cards: seat.hole });
+      }
+
       io.to(code).emit('roomUpdate', publicState(room));
       io.to(socket.id).emit('chatBacklog', room.chat.slice(-100));
       const you=room.players.get(useToken);
       cb?.({ok:true, name:you.name, token:useToken, isHost:room.hostToken===useToken});
     }catch(e){ console.error('joinRoom error', e); cb?.({ok:false,error:'Join failed'}); }
+  });
+
+  // Client can request their cards again as a safety net
+  socket.on('requestYourCards', ()=>{
+    const code=socket.data.roomCode; if(!code) return;
+    const room=getRoom(code); const tok=socket.data.token; if(!tok) return;
+    const seat=room.holes.get(tok); if(seat && room.stage==='selecting'){
+      io.to(socket.id).emit('yourCards', { cards: seat.hole });
+    }
   });
 
   socket.on('toggleSitOut', sitOut=>{
@@ -310,13 +332,15 @@ io.on('connection', socket => {
       room.holes=new Map(); room.equities={he:{}, plo:{}};
       clearSelectionTimer(room);
 
+      // Deal & charge ante
       for(const tok of participants){
         const p=room.players.get(tok);
         const hole=[room.deck.pop(),room.deck.pop(),room.deck.pop(),room.deck.pop(),room.deck.pop(),room.deck.pop()];
         room.holes.set(tok,{ hole, pickHoldem:[], pickPLO:[], locked:false });
-        p.balance=(p.balance||0)-room.ante; // active seats pay ante; BALANCES ACCUMULATE ACROSS HANDS
+        p.balance=(p.balance||0)-room.ante;
       }
 
+      // Send hole cards to each connected seat
       for(const [sid,tok] of room.socketIndex.entries()){
         const seat=room.holes.get(tok); if(seat) io.to(sid).emit('yourCards',{cards:seat.hole});
       }
@@ -338,14 +362,13 @@ io.on('connection', socket => {
       for(const c of [...holdemTwo,...ploFour]) if(!set.has(c)) return cb?.({ok:false,error:'Invalid card'});
       seat.pickHoldem=[...holdemTwo]; seat.pickPLO=[...ploFour]; seat.locked=true;
 
-      // immediate lock status
-      io.to(code).emit('roomUpdate', publicState(room));
+      io.to(code).emit('roomUpdate', publicState(room)); // lock status
 
       const allLocked=[...room.holes.values()].every(s=>s.locked);
       if(allLocked){
         clearSelectionTimer(room);
         room.stage='revealed';
-        io.to(code).emit('roomUpdate', publicState(room)); // instant stage change
+        io.to(code).emit('roomUpdate', publicState(room)); // stage change
         recomputeAndEmitFast(room, code, 'preflop');       // quick equities
       }
       cb?.({ok:true});
@@ -372,8 +395,7 @@ io.on('connection', socket => {
       } else if(room.board.length===4){
         room.board.push(room.deck.pop());
         io.to(code).emit('roomUpdate', publicState(room));
-        // We will emit 'streetUpdate' with 100% winners inside scoreAndFinish.
-        recomputeAndEmitFast(room, code, 'river'); // light compute (equities cleared)
+        recomputeAndEmitFast(room, code, 'river'); // clear equities; winners set below
         scoreAndFinish(room, code);
       }
     }catch(e){ console.error('revealNextStreet error', e); }
@@ -392,9 +414,10 @@ io.on('connection', socket => {
     const code=socket.data.roomCode; if(!code) return;
     const room=getRoom(code);
     if(room.hostToken!==socket.data.token) return;
-    const final=[...room.players.entries()].map(([tok,p])=>({id:tok,name:p.name,balance:p.balance||0})).sort((a,b)=>b.balance-a.balance);
-    io.to(code).emit('finalResults',{handNumber:room.handNumber, ante:room.ante, players:final});
-    setTimeout(()=>{ io.to(code).emit('terminated'); rooms.delete(code); }, 200);
+
+    const summary = buildSummary(room);
+    io.to(code).emit('finalResults', summary);
+    setTimeout(()=>{ io.to(code).emit('terminated'); rooms.delete(code); }, 300);
   });
 
   socket.on('chatMessage', text=>{
@@ -430,7 +453,7 @@ function scoreAndFinish(room, code){
   const topH=scoresH.filter(x=>cmp5(x.score,scoresH[0].score)===0).map(x=>x.tok);
   const topP=scoresP.filter(x=>cmp5(x.score,scoresP[0].score)===0).map(x=>x.tok);
 
-  // === NEW: on river, show winners at 100% on the Revealed table ===
+  // Winners shown as 100% at river
   const eqFinalHE={}, eqFinalPLO={};
   for (const [tok] of room.holes.entries()){
     eqFinalHE[tok] = { win: topH.includes(tok) ? 100 : 0, tie: 0 };
@@ -439,7 +462,7 @@ function scoreAndFinish(room, code){
   room.equities = { he: eqFinalHE, plo: eqFinalPLO };
   io.to(code).emit('streetUpdate', { stage:'river', board:room.board, equities:room.equities, picks: buildPicks(room) });
 
-  // Payouts (balances accumulate across hands)
+  // Payouts (balances carry forward)
   const pot=room.ante * room.holes.size;
   const heShare=(pot/2)/Math.max(1, topH.length);
   const ploShare=(pot/2)/Math.max(1, topP.length);
@@ -447,20 +470,47 @@ function scoreAndFinish(room, code){
   for(const t of topH){ const p=room.players.get(t); p.balance=(p.balance||0)+heShare; }
   for(const t of topP){ const p=room.players.get(t); p.balance=(p.balance||0)+ploShare; }
 
+  // Stats
+  const activeTokens = [...room.holes.keys()];
+  activeTokens.forEach(tok => { const st = room.players.get(tok).stats; st.handsPlayed++; });
+  topH.forEach(tok => room.players.get(tok).stats.winsHE++);
+  topP.forEach(tok => room.players.get(tok).stats.winsPLO++);
   const scoops=(topH.length===1 && topP.length===1 && topH[0]===topP[0]) ? [topH[0]] : [];
+  if (scoops.length) room.players.get(scoops[0]).stats.scoops++;
 
   const picks={}; for(const [tok,seat] of room.holes.entries()){
     picks[tok]={ name:room.players.get(tok).name, holdem:seat.pickHoldem, plo:seat.pickPLO, hole:seat.hole };
   }
+
+  // include balances snapshot so clients update immediately
+  const playersSnapshot = [...room.players.entries()].map(([id,p])=>({
+    id, name: p.name, balance: Number.isFinite(p.balance) ? p.balance : 0
+  }));
 
   io.to(code).emit('results', {
     board: room.board,
     winners: { holdem: topH, plo: topP },
     scoops,
     picks,
-    handNumber: room.handNumber
+    handNumber: room.handNumber,
+    players: playersSnapshot
   });
 
   room.stage='results';
   io.to(code).emit('roomUpdate', publicState(room));
+}
+
+function buildSummary(room){
+  const players = [...room.players.entries()].map(([id,p])=>({
+    id, name:p.name,
+    balance:Number(p.balance||0),
+    stats: { ...p.stats }
+  })).sort((a,b)=>b.balance-a.balance);
+
+  return {
+    room: [...rooms.keys()].find(k=>rooms.get(k)===room) || '',
+    handNumber: room.handNumber,
+    ante: room.ante,
+    players
+  };
 }
