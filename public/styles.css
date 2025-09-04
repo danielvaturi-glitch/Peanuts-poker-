@@ -1,19 +1,107 @@
-/* Core card visuals */
-.cardchip { display:inline-block; margin:6px; cursor:pointer; position:relative; }
-.cardchip.selected { outline:3px solid #2b8a3e; outline-offset:2px; border-radius:12px; }
-.cardsvg { width:96px; height:134px; }
+:root{
+  --bg:#0b6623;
+  --panel:#102b19;
+  --panel2:#173b23;
+  --text:#fff;
+  --muted:#b7d1c2;
+  --accent:#ffd166;
+  --btn:#1f6f43;
+  --btn2:#2a8856;
+  --danger:#b33;
+}
+*{box-sizing:border-box}
+body{margin:0; font-family:system-ui,-apple-system,"Segoe UI",Roboto,Inter,sans-serif; color:var(--text); background:var(--bg);}
 
-/* Corners */
-.cardsvg .corner { font:700 22px/1 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; }
-.cardsvg .rank.small { font:800 28px/1 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; }
-.cardsvg .suit-corner { font:700 22px/1 'Segoe UI Symbol', system-ui; }
+/* Hero / Home */
+.hero{
+  display:flex; flex-wrap:wrap; gap:24px; align-items:center; justify-content:center;
+  padding:28px 16px; background:linear-gradient(135deg,#07461a,#0b6623 60%,#094e1c);
+  border-bottom:3px solid #083a16;
+}
+.brand{ text-align:center; }
+.brand .peanut{ font-size:96px; filter: drop-shadow(0 4px 8px rgba(0,0,0,.4)); }
+.brand h1{ margin:8px 0 4px 0; letter-spacing:.5px; }
+.brand p{ margin:0; color:var(--muted); }
+.join{
+  background:var(--panel); padding:16px; border-radius:10px; min-width:300px;
+  box-shadow:0 10px 30px rgba(0,0,0,.25), inset 0 0 0 1px rgba(255,255,255,.06);
+}
+input{ padding:10px 12px; border-radius:8px; border:none; outline:none; margin:6px 6px 6px 0; width:180px; }
+button{ padding:10px 14px; border:none; border-radius:8px; color:#fff; background:var(--btn); cursor:pointer; }
+button.primary{ background:var(--btn2); }
+button:disabled{ opacity:.6; cursor:not-allowed; }
+.hint{ color:var(--muted); margin-top:8px; font-size:13px; }
 
-/* Pips */
-.cardsvg .pip { font:700 34px/1 'Segoe UI Symbol', system-ui; }
+/* Screens */
+.hidden{display:none;}
+.screen{ padding:16px; }
+h2,h3,h4{ margin:8px 0; }
 
-/* Ace */
-.cardsvg .aceSuit { font:900 108px/1 'Segoe UI Symbol', system-ui; }
+.settings{
+  display:grid; gap:12px; grid-template-columns: repeat(auto-fit,minmax(260px,1fr));
+  background:var(--panel); padding:12px; border-radius:8px; margin-bottom:10px;
+}
+.setting{ background:var(--panel2); padding:12px; border-radius:8px; }
+.setting label{ display:block; font-weight:600; margin-bottom:6px; }
+.timerRow{ display:flex; align-items:center; gap:8px; }
+.controls{ display:flex; gap:8px; flex-wrap:wrap; }
+.badge{ background:#555; padding:3px 8px; border-radius:999px; margin-left:6px; font-size:12px; }
+.kickHint{ color:var(--muted); font-size:12px; margin-top:6px; }
 
-/* Face cards */
-.cardsvg .faceLetter { font:900 72px/1 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; }
-.cardsvg .faceSuit { font:800 48px/1 'Segoe UI Symbol', system-ui; }
+#players .playerRow{ display:flex; justify-content:space-between; align-items:center; background:var(--panel2); padding:8px; border-radius:8px; margin:6px 0; }
+.namechip{ font-weight:700; }
+.positive{ color:#67ff86; } .negative{ color:#ff6b6b; }
+.badge.warn{ background:var(--danger); }
+
+.selectRow{ display:grid; grid-template-columns: 1fr 280px 260px; gap:16px; }
+.picksBox, .statusBox{ background:var(--panel); padding:12px; border-radius:8px; }
+.pickRow{ min-height:148px; background:rgba(0,0,0,.15); border-radius:8px; padding:6px; }
+
+.boardRow{ display:flex; align-items:flex-start; gap:16px; }
+.board{ display:flex; gap:8px; background:var(--panel); padding:12px; border-radius:8px; min-height:150px; }
+.revealBtns{ display:flex; flex-direction:column; gap:8px; }
+
+.tableGrid{ display:grid; grid-template-columns: repeat(auto-fit,minmax(280px,1fr)); gap:10px; }
+.seat{ background:var(--panel); padding:10px; border-radius:10px; }
+.handRow{ display:flex; align-items:center; gap:6px; margin:6px 0; }
+.handRow .label{ width:36px; opacity:.8; }
+.eq{ margin-left:auto; font-weight:700; }
+
+.winners{ background:var(--panel); padding:10px; border-radius:10px; margin:8px 0; }
+
+.chat{ position:fixed; left:0; right:0; bottom:0; background:#0a0a0a; border-top:2px solid #222; }
+.chatLog{ height:140px; overflow:auto; padding:8px; font-size:13px; background:#050505; }
+.chatInputRow{ display:flex; gap:6px; padding:8px; }
+.chatmsg{ margin:2px 0; } .chatmsg.system{ color:#aaa; }
+.who{ font-weight:700; margin-right:6px; }
+
+/* Card visuals — realistic */
+.cardchip{ display:inline-block; margin:6px; cursor:pointer; position:relative; }
+.cardchip.selected{ outline:3px solid #2b8a3e; outline-offset:2px; border-radius:12px; }
+.cardsvg{ width:96px; height:134px; }
+.cardsvg .corner{ font:700 22px/1 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+.cardsvg .rank.small{ font:800 28px/1 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+.cardsvg .suit-corner{ font:700 22px/1 "Segoe UI Symbol", system-ui; }
+.cardsvg .pip{ font:700 34px/1 "Segoe UI Symbol", system-ui; }
+.cardsvg .aceSuit{ font:900 108px/1 "Segoe UI Symbol", system-ui; }
+.cardsvg .faceLetter{ font:900 72px/1 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+.cardsvg .faceSuit{ font:800 48px/1 "Segoe UI Symbol", system-ui; }
+
+/* Scoop fireworks */
+.scoopFX{ position:fixed; inset:0; display:flex; align-items:center; justify-content:center; pointer-events:none; }
+.scoopFX.hidden{ display:none; }
+.scoopText{ position:absolute; top:38%; font-size:42px; font-weight:900; color:#ffe66d; text-shadow:0 3px 8px rgba(0,0,0,.6); }
+.boom, .boom::before, .boom::after{
+  position:absolute; width:8px; height:8px; background:#ffd166; border-radius:50%;
+  animation: explode 1.4s ease-out infinite;
+}
+.boom{ top:58%; left:46%; }
+.boom.delay{ animation-delay:.5s; left:54%; }
+.boom::before, .boom::after{ content:""; display:block; position:absolute; }
+.boom::before{ left:-20px; top:-30px; }
+.boom::after{ left:22px; top:-26px; }
+@keyframes explode{
+  0%{ transform:scale(0); opacity:1; }
+  70%{ transform:scale(12); opacity:.7; }
+  100%{ transform:scale(15); opacity:0; }
+}
