@@ -7,26 +7,26 @@
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
-  <!-- HOME / HERO -->
+  <!-- HOME -->
   <header class="hero" id="homeHero">
     <div class="brand">
-      <div class="peanut" aria-hidden="true">🥜</div>
+      <div class="peanut">🥜</div>
       <h1>Peanuts Poker</h1>
       <p>Texas Hold’em + PLO — peanuts style</p>
     </div>
     <div class="join">
       <input id="room" placeholder="Room Code" maxlength="8" />
       <input id="name" placeholder="Your Name" maxlength="20" />
-      <button id="joinBtn">Join Room</button>
-      <div class="hint">Share the same room code with friends (max 6). Refreshing or returning won’t lose your seat.</div>
+      <button id="joinBtn" class="primary">Join Room</button>
+      <div class="hint">Share the same room code with friends (max 6).</div>
     </div>
   </header>
 
-  <!-- APP CONTENT (ROOM SCREENS) -->
   <main id="app">
-    <!-- LOBBY / SETTINGS -->
+    <!-- LOBBY -->
     <section id="lobby" class="screen hidden">
       <h2><span id="roomBadge"></span> • <span id="handBadge"></span></h2>
+
       <div class="settings">
         <div class="setting">
           <label>Ante</label>
@@ -42,18 +42,7 @@
           <span id="scoopLockedBadge" class="badge hidden">Locked</span>
         </div>
 
-        <div class="setting">
-          <label>Selection Timer</label>
-          <div class="timerRow">
-            <input id="timerInput" type="number" value="45" min="5" max="180" />
-            <button id="unlockTimer">Unlock</button>
-            <button id="lockTimer">Lock</button>
-            <span id="timerLockedBadge" class="badge">Locked</span>
-          </div>
-        </div>
-
         <div class="controls">
-          <button id="sitBtn" data-on="0">Sit Out</button>
           <button id="startBtn" class="primary">Play Hand</button>
           <button id="leaveBtn">Leave Room</button>
           <button id="terminateBtn" class="danger">Terminate Room</button>
@@ -62,7 +51,6 @@
 
       <h3>Players</h3>
       <div id="players"></div>
-      <div class="kickHint">Timed-out (absent &gt; 10m) players can be removed to free seats.</div>
     </section>
 
     <!-- SELECTING -->
@@ -79,29 +67,15 @@
           <h4>PLO (pick 4)</h4>
           <div id="pickPLO" class="pickRow"></div>
           <button id="lockBtn" class="primary">Lock Selections</button>
-          <div class="countdown">Time left: <span id="countdown">—</span></div>
-          <button id="toLobby1">Change Settings</button>
-        </div>
-        <div class="statusBox">
-          <h4>Lock Status</h4>
-          <div id="lockStatus"></div>
         </div>
       </div>
     </section>
 
-    <!-- REVEALED / BOARD -->
+    <!-- REVEALED -->
     <section id="revealed" class="screen hidden">
-      <div class="boardRow">
-        <div>
-          <h2>Board</h2>
-          <div id="board" class="board"></div>
-        </div>
-        <div class="revealBtns">
-          <button id="revealBtn" class="primary">Reveal Flop</button>
-          <button id="toLobby2">Change Settings</button>
-          <button id="terminateBtn2" class="danger">Terminate Room</button>
-        </div>
-      </div>
+      <h2>Board</h2>
+      <div id="board" class="board"></div>
+      <button id="revealBtn" class="primary">Reveal Flop</button>
 
       <h3>Table</h3>
       <div id="tableGrid" class="tableGrid"></div>
@@ -112,47 +86,22 @@
       <h2>Results • Hand <span id="handBadgeRes"></span></h2>
       <div id="finalBoard" class="board"></div>
       <div id="winners" class="winners"></div>
-      <div id="handDeltas" class="deltas"></div>
       <h3>Table</h3>
       <div id="tableGridFinal" class="tableGrid"></div>
       <div class="resultsBtns">
         <button id="nextBtn" class="primary">Play Next Hand</button>
         <button id="changeSettingsBtn">Change Settings</button>
-        <button id="terminateBtn3" class="danger">Terminate Room</button>
+        <button id="terminateBtn2" class="danger">Terminate Room</button>
       </div>
     </section>
 
-    <!-- TERMINATED / SUMMARY (visible up to 24h) -->
+    <!-- TERMINATED -->
     <section id="terminated" class="screen hidden">
-      <h2>Session Summary (last 24h)</h2>
+      <h2>Session Summary</h2>
       <div id="summaryInfo"></div>
-      <p class="hint">This summary persists for 24 hours. After that, the room resets to Hand #1.</p>
       <button id="leaveFromSummary">Leave Room</button>
     </section>
   </main>
-
-  <!-- CHAT (bottom bar; only visible in room and never covers buttons) -->
-  <footer id="chatBar" class="chatBar hidden">
-    <div class="chatHead">
-      <strong>Room Chat</strong>
-      <button id="chatCollapse" title="Minimize">▾</button>
-    </div>
-    <div id="chatBody" class="chatBody">
-      <div id="chatLog" class="chatLog"></div>
-      <div class="chatInputRow">
-        <input id="chatInput" placeholder="Type message…" />
-        <button id="chatSend">Send</button>
-      </div>
-    </div>
-    <div id="chatReveal" class="chatReveal hidden" title="Expand">💬 Chat</div>
-  </footer>
-
-  <!-- SCOOP FIREWORKS -->
-  <div id="scoopFX" class="scoopFX hidden">
-    <div class="boom"></div>
-    <div class="boom delay"></div>
-    <div class="scoopText">FULL PEANUT SCOOP!</div>
-  </div>
 
   <script src="/socket.io/socket.io.js"></script>
   <script src="/client.js"></script>
