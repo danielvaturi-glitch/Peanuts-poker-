@@ -142,10 +142,17 @@ function joinRoom(){
   socket.emit('joinRoom', {roomCode:room, name, token}, (res)=>{
     $("joinBtn").disabled=false; $("joinBtn").textContent="Join Room";
     if(!res?.ok) return alert(res?.error||"Join failed");
+
+    // Save identity and set badges
     state.room=room; state.token=res.token; state.you=res.name; saveIdentity(res.token, room);
     roomBadge.textContent = `Room ${room}`;
     setChatMinimized(true);
-    // If the room is terminated, server will send sessionSummary (handled below)
+
+    // *** FIX: immediately show the lobby after a successful join ***
+    // If the room is already terminated, the server will send sessionSummary instead.
+    if (res.token) {
+      show(lobby);
+    }
   });
 }
 function leaveRoom(){ clearIdentity(); location.reload(); }
@@ -367,7 +374,12 @@ window.addEventListener('load', ()=>{
   if(token && room && /^[A-Z0-9]{3,8}$/.test(room)){
     $("room").value = room;
     socket.emit('joinRoom', {roomCode:room, name:'', token}, (res)=>{
-      if(res?.ok){ state.room=room; state.token=res.token; state.you=res.name; roomBadge.textContent=`Room ${room}`; setChatMinimized(true); show(lobby); }
+      if(res?.ok){
+        state.room=room; state.token=res.token; state.you=res.name;
+        roomBadge.textContent=`Room ${room}`;
+        setChatMinimized(true);
+        if (res.token) show(lobby);
+      }
     });
   } else {
     homeHero.classList.remove('hidden');
