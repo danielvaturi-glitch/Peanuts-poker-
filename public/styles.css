@@ -4,7 +4,6 @@
   --panel2:#173b23;
   --text:#fff;
   --muted:#b7d1c2;
-  --accent:#ffd166;
   --btn:#1f6f43;
   --btn2:#2a8856;
   --danger:#b33;
@@ -29,6 +28,7 @@ body{margin:0; font-family:system-ui,-apple-system,"Segoe UI",Roboto,Inter,sans-
 input{ padding:10px 12px; border-radius:8px; border:none; outline:none; margin:6px 6px 6px 0; width:180px; }
 button{ padding:10px 14px; border:none; border-radius:8px; color:#fff; background:var(--btn); cursor:pointer; }
 button.primary{ background:var(--btn2); }
+button.danger{ background:#b33; }
 button:disabled{ opacity:.6; cursor:not-allowed; }
 .hint{ color:var(--muted); margin-top:8px; font-size:13px; }
 
@@ -51,30 +51,37 @@ h2,h3,h4{ margin:8px 0; }
 #players .playerRow{ display:flex; justify-content:space-between; align-items:center; background:var(--panel2); padding:8px; border-radius:8px; margin:6px 0; }
 .namechip{ font-weight:700; }
 .positive{ color:#67ff86; } .negative{ color:#ff6b6b; }
-.badge.warn{ background:var(--danger); }
+.badge.warn{ background:#9d3; color:#002; }
 
 /* Selecting */
-.selectRow{ display:grid; grid-template-columns: 1fr 300px 260px; gap:16px; }
+.selectRow{ display:grid; grid-template-columns: 1fr 320px 260px; gap:16px; }
 .picksBox, .statusBox{ background:var(--panel); padding:12px; border-radius:8px; }
 .pickRow{ min-height:152px; background:rgba(0,0,0,.15); border-radius:8px; padding:6px; display:flex; flex-wrap:wrap; align-items:center; }
+.countdown{ margin-top:8px; color:var(--accent); font-weight:700; }
 
 /* Board & table */
 .boardRow{ display:flex; align-items:flex-start; gap:16px; }
 .board{ display:flex; gap:8px; background:var(--panel); padding:12px; border-radius:8px; min-height:156px; }
 .revealBtns{ display:flex; flex-direction:column; gap:8px; }
-.tableGrid{ display:grid; grid-template-columns: repeat(auto-fit,minmax(320px,1fr)); gap:14px; }
+.tableGrid{
+  display:grid; grid-template-columns: repeat(auto-fit,minmax(360px,1fr));
+  gap:16px;
+}
 .seat{ background:var(--panel); padding:12px; border-radius:10px; }
-.handRow{ display:flex; align-items:center; gap:8px; margin:8px 0; flex-wrap:wrap; }
-.handRow .label{ width:40px; opacity:.85; font-weight:700; }
+.pname{ font-weight:800; margin-bottom:8px; }
+.handRow{ display:flex; align-items:center; gap:10px; margin:8px 0; flex-wrap:wrap; }
+.handRow .label{ width:44px; opacity:.85; font-weight:700; }
 .eq{ margin-left:auto; font-weight:800; }
 
-/* Winners */
+/* Winners & deltas */
 .winners{ background:var(--panel); padding:10px; border-radius:10px; margin:8px 0; }
-.resultsBtns{ display:flex; gap:8px; }
+.deltas{ background:var(--panel); padding:10px; border-radius:10px; margin:8px 0; }
+.deltaRow{ display:flex; justify-content:space-between; padding:4px 0; }
+.deltaPlus{ color:#67ff86; } .deltaMinus{ color:#ff6b6b; }
 
-/* Chat bottom bar */
+/* Chat bottom bar — never blocks UI */
 .chatBar{
-  position:fixed; left:0; right:0; bottom:0; background:#0f1f18; border-top:2px solid #1c3325; z-index:10;
+  position:fixed; left:0; right:0; bottom:0; background:#0f1f18; border-top:2px solid #1c3325; z-index:5;
   box-shadow: 0 -6px 18px rgba(0,0,0,.25);
 }
 .chatHead{ display:flex; align-items:center; justify-content:space-between; padding:8px 10px; }
@@ -90,26 +97,17 @@ h2,h3,h4{ margin:8px 0; }
 .chatmsg{ margin:2px 0; } .chatmsg.system{ color:#aaa; }
 .who{ font-weight:700; margin-right:6px; }
 
-/* Push content up so chat doesn't cover it when open */
-body.chat-open { padding-bottom: 210px; }
-body.chat-open .screen { padding-bottom: 16px; }
+/* Ensure content never sits under chat: provide bottom padding */
+body.room-visible.chat-open { padding-bottom: 240px; }
+body.room-visible.chat-min { padding-bottom: 44px; }
 
-/* Card visuals — crisp vector */
-.cardchip{ display:inline-block; margin:6px; cursor:pointer; position:relative; }
+/* Cards — crisp vector */
+.cardchip{ display:inline-block; margin:4px; cursor:pointer; position:relative; }
 .cardchip.selected{ outline:3px solid #2b8a3e; outline-offset:2px; border-radius:12px; }
-
 .cardsvg{ width:104px; height:146px; text-rendering:geometricPrecision; shape-rendering:geometricPrecision; }
-.cardsvg.mini{ width:84px; height:118px; }
-.cardsvg .corner{ font:800 22px/1 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Inter; letter-spacing:.2px; }
-.cardsvg .rank.small{ font:900 28px/1 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Inter; letter-spacing:.2px; }
-.cardsvg .pip{ }
-.cardsvg .aceSuit{ }
-.cardsvg .faceLetter{ font:900 72px/1 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Inter; }
-.cardsvg .faceSuit{ }
-
-/* Slightly compact cards inside table seats for readability */
-.seat .cardchip .cardsvg{ width:92px; height:130px; }
-.seat .cardchip.mini .cardsvg{ width:78px; height:108px; }
+.cardsvg.mini{ width:88px; height:124px; }
+.seat .cardsvg{ width:92px; height:130px; }
+.seat .cardsvg.mini{ width:84px; height:118px; }
 
 /* Scoop fireworks */
 .scoopFX{ position:fixed; inset:0; display:flex; align-items:center; justify-content:center; pointer-events:none; }
