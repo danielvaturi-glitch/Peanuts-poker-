@@ -18,7 +18,7 @@
       <input id="room" placeholder="Room Code" maxlength="8" />
       <input id="name" placeholder="Your Name" maxlength="20" />
       <button id="joinBtn">Join Room</button>
-      <div class="hint">Share the same room code with friends (max 6). You can refresh or come back later—your seat persists.</div>
+      <div class="hint">Share the same room code with friends (max 6). Refreshing or returning won’t lose your seat.</div>
     </div>
   </header>
 
@@ -56,6 +56,7 @@
           <button id="sitBtn" data-on="0">Sit Out</button>
           <button id="startBtn" class="primary">Play Hand</button>
           <button id="leaveBtn">Leave Room</button>
+          <button id="terminateBtn" class="danger">Terminate Room</button>
         </div>
       </div>
 
@@ -98,8 +99,10 @@
         <div class="revealBtns">
           <button id="revealBtn" class="primary">Reveal Flop</button>
           <button id="toLobby2">Change Settings</button>
+          <button id="terminateBtn2" class="danger">Terminate Room</button>
         </div>
       </div>
+
       <h3>Table</h3>
       <div id="tableGrid" class="tableGrid"></div>
     </section>
@@ -109,15 +112,26 @@
       <h2>Results • Hand <span id="handBadgeRes"></span></h2>
       <div id="finalBoard" class="board"></div>
       <div id="winners" class="winners"></div>
+      <div id="handDeltas" class="deltas"></div>
+      <h3>Table</h3>
       <div id="tableGridFinal" class="tableGrid"></div>
       <div class="resultsBtns">
         <button id="nextBtn" class="primary">Play Next Hand</button>
         <button id="changeSettingsBtn">Change Settings</button>
+        <button id="terminateBtn3" class="danger">Terminate Room</button>
       </div>
+    </section>
+
+    <!-- TERMINATED / SUMMARY (visible up to 24h) -->
+    <section id="terminated" class="screen hidden">
+      <h2>Session Summary (last 24h)</h2>
+      <div id="summaryInfo"></div>
+      <p class="hint">This summary persists for 24 hours. After that, the room resets to Hand #1.</p>
+      <button id="leaveFromSummary">Leave Room</button>
     </section>
   </main>
 
-  <!-- CHAT (bottom bar; only visible in room) -->
+  <!-- CHAT (bottom bar; only visible in room and never covers buttons) -->
   <footer id="chatBar" class="chatBar hidden">
     <div class="chatHead">
       <strong>Room Chat</strong>
