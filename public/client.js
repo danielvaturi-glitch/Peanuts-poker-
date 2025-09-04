@@ -1,11 +1,11 @@
-// Client updates: crisper cards, stable selection, cleaner table spacing, bottom chat
+// Client updates: bottom chat never blocks; cleaner table; sharp cards; per-hand delta; terminate room
 
 const socket = io();
 const $ = id => document.getElementById(id);
 
 // Sections / Elements
 const homeHero = $("homeHero");
-const lobby = $("lobby"), selecting = $("selecting"), revealed = $("revealed"), results = $("results");
+const lobby = $("lobby"), selecting = $("selecting"), revealed = $("revealed"), results = $("results"), terminated = $("terminated");
 const roomBadge = $("roomBadge"), handBadge = $("handBadge");
 const handBadgeSel = $("handBadgeSel"), handBadgeRes = $("handBadgeRes");
 const anteInput = $("anteInput"), anteLockedBadge = $("anteLockedBadge");
@@ -15,14 +15,19 @@ const playersDiv = $("players");
 const yourHandEl = $("yourHand"), pickHoldemEl = $("pickHoldem"), pickPLOEl = $("pickPLO");
 const lockStatus = $("lockStatus"), countdownEl = $("countdown");
 const boardEl = $("board"), revealBtn = $("revealBtn");
-const finalBoardEl = $("finalBoard"), winnersDiv = $("winners");
+const finalBoardEl = $("finalBoard"), winnersDiv = $("winners"), deltasDiv = $("handDeltas");
 const tableGrid = $("tableGrid"), tableGridFinal = $("tableGridFinal");
 const scoopFX = $("scoopFX");
 
 // Chat bottom bar
-const chatBar = $("chatBar"), chatBody = $("chatBody"), chatLog = $("chatLog");
+const chatBar = $("chatBar"), chatLog = $("chatLog");
 const chatInput = $("chatInput"), chatSend = $("chatSend");
 const chatCollapse = $("chatCollapse"), chatReveal = $("chatReveal");
+
+// Terminate buttons
+$("terminateBtn").onclick = terminateRoom;
+$("terminateBtn2").onclick = terminateRoom;
+$("terminateBtn3").onclick = terminateRoom;
 
 // Buttons
 $("joinBtn").onclick = joinRoom;
@@ -39,6 +44,7 @@ $("nextBtn").onclick = ()=>socket.emit('startHand');
 $("changeSettingsBtn").onclick = ()=>socket.emit('changeSettings');
 revealBtn.onclick = ()=>socket.emit('revealNextStreet');
 $("lockBtn").onclick = lockSelections;
+$("leaveFromSummary").onclick = leaveRoom;
 
 // Inputs -> server
 anteInput.onchange = ()=>socket.emit('setAnte', Number(anteInput.value)||0);
@@ -56,40 +62,56 @@ const state = {
   room: null, token: null, you: null,
   stage:'home',
   yourCards: [], pickH: new Set(), pickP: new Set(),
-  dealKey:null,                           // prevents accidental reset while selecting
+  dealKey:null,
   picksByPlayer:{}, equities:{he:{},plo:{}},
   finalPicksByPlayer:{}, finalEquities:{he:{},plo:{}},
   board:[], selectionRemainingMs:0,
-  chatMin:false
+  chatMin:true
 };
 
-// Show helper: chat only in room screens; never on home
+// Show helper: chat only in room screens; never on home; never blocks
+function setRoomVisibility(on){
+  document.body.classList.toggle('room-visible', !!on);
+  if(on){
+    if(state.chatMin){
+      document.body.classList.add('chat-min');
+      document.body.classList.remove('chat-open');
+    }else{
+      document.body.classList.remove('chat-min');
+      document.body.classList.add('chat-open');
+    }
+  }else{
+    document.body.classList.remove('chat-min','chat-open');
+  }
+}
 function show(section){
-  [lobby, selecting, revealed, results].forEach(x=>x.classList.add("hidden"));
+  [lobby, selecting, revealed, results, terminated].forEach(x=>x.classList.add("hidden"));
   section.classList.remove("hidden");
 
-  const inRoom = (section===lobby || section===selecting || section===revealed || section===results);
+  const inRoom = (section!==homeHero && section!==null && section!==undefined && section!==document.body) &&
+                 (section===lobby || section===selecting || section===revealed || section===results || section===terminated);
   if(inRoom){
     homeHero.classList.add("hidden");
     chatBar.classList.remove("hidden");
-    if(!state.chatMin) {
-      chatBar.classList.remove('minimized');
-      document.body.classList.add('chat-open');
-    }
+    setRoomVisibility(true);
   } else {
     homeHero.classList.remove("hidden");
     chatBar.classList.add("hidden");
-    document.body.classList.remove('chat-open');
+    setRoomVisibility(false);
   }
 }
 
-// Chat minimize/expand
+// Chat minimize/expand (default minimized so it never covers controls)
 function setChatMinimized(min){
   state.chatMin = min;
   chatBar.classList.toggle('minimized', min);
-  chatReveal.classList.toggle('hidden', !min);
-  if(min) document.body.classList.remove('chat-open');
-  else document.body.classList.add('chat-open');
+  if(min){
+    document.body.classList.add('chat-min');
+    document.body.classList.remove('chat-open');
+  }else{
+    document.body.classList.remove('chat-min');
+    document.body.classList.add('chat-open');
+  }
 }
 chatCollapse.addEventListener('click', ()=> setChatMinimized(true));
 chatReveal.addEventListener('click', ()=> setChatMinimized(false));
@@ -110,7 +132,7 @@ function sendChat(){
 chatSend.onclick = sendChat;
 chatInput.addEventListener('keydown', e=>{ if(e.key==='Enter') sendChat(); });
 
-// Join / Leave
+// Join / Leave / Terminate
 function joinRoom(){
   const room = ($("room").value||'').toUpperCase().trim();
   const name = ($("name")?.value||'Player').trim();
@@ -122,22 +144,15 @@ function joinRoom(){
     if(!res?.ok) return alert(res?.error||"Join failed");
     state.room=room; state.token=res.token; state.you=res.name; saveIdentity(res.token, room);
     roomBadge.textContent = `Room ${room}`;
-    setChatMinimized(false);
-    show(lobby);
+    setChatMinimized(true);
+    // If the room is terminated, server will send sessionSummary (handled below)
   });
 }
 function leaveRoom(){ clearIdentity(); location.reload(); }
+function terminateRoom(){ socket.emit('terminateRoom'); }
 
-// Sit out
-function toggleSit(){
-  const btn=$("sitBtn");
-  const on = btn.getAttribute('data-on')==='1';
-  socket.emit('toggleSitOut', !on);
-}
-
-// ---------- CRISP CARD RENDERING (vector paths for suits) ----------
+// ---------- CRISP CARD RENDERING (clean, brand-neutral) ----------
 function suitPath(s){
-  // Returns {d, fill} path data (single-color; we set fill via caller)
   switch(s){
     case 'h': return {d:'M100 70 C100 40, 60 30, 50 55 C40 30, 0 40, 0 70 C0 100, 50 120, 100 160 C150 120, 200 100, 200 70 C200 40, 160 30, 150 55 C140 30, 100 40, 100 70 Z', scale:.55, y:25};
     case 'd': return {d:'M100 0 L200 100 L100 200 L0 100 Z', scale:.55, y:22};
@@ -172,7 +187,7 @@ function drawCardSVG(rank, suit, mini){
   const facePanel = `
     <g transform="translate(${viewW/2}, ${viewH/2})">
       <rect x="-60" y="-90" width="120" height="180" rx="12" ry="12" fill="${(suit==='h'||suit==='d') ? '#FCE6E9' : '#EEF1F5'}" stroke="${color}" stroke-width="2"/>
-      <text x="0" y="-30" text-anchor="middle" class="faceLetter" fill="${color}">${rank}</text>
+      <text x="0" y="-30" text-anchor="middle" style="font:900 72px/1 ui-sans-serif,system-ui,-apple-system,'Segoe UI',Inter; fill:${color}">${rank}</text>
       <g transform="translate(-80, 16) scale(.8)" fill="${color}">
         <path d="M 40 0 L 55 -18 L 70 0 L 85 -15 L 100 0 L 115 -15 L 130 0 L 145 -18 L 160 0 L 155 22 L 45 22 Z"></path>
       </g>
@@ -196,11 +211,11 @@ function drawCardSVG(rank, suit, mini){
   <svg class="cardsvg ${mini?'mini':''}" viewBox="0 0 ${viewW} ${viewH}" text-rendering="geometricPrecision" shape-rendering="geometricPrecision" role="img">
     <rect x="2" y="2" width="${viewW-4}" height="${viewH-4}" rx="16" ry="16" fill="white" stroke="#1d1d1d" stroke-width="4"/>
     <g transform="translate(14,30)">
-      <text class="rank small corner" fill="${color}" dominant-baseline="hanging">${cornerRank}</text>
+      <text style="font:900 22px/1 ui-sans-serif,system-ui,-apple-system,'Segoe UI',Inter; fill:${color}" dominant-baseline="hanging">${cornerRank}</text>
       ${suitCorner}
     </g>
     <g transform="translate(${viewW-14},${viewH-30}) rotate(180)">
-      <text class="rank small corner" fill="${color}" dominant-baseline="hanging">${cornerRank}</text>
+      <text style="font:900 22px/1 ui-sans-serif,system-ui,-apple-system,'Segoe UI',Inter; fill:${color}" dominant-baseline="hanging">${cornerRank}</text>
       ${suitCorner}
     </g>
     ${pipPts.length? pipNodes : ''}
@@ -239,7 +254,6 @@ yourHandEl.addEventListener('click', e=>{
   const c=chip.getAttribute('data-card'); toggleSelection(c);
 });
 function toggleSelection(card){
-  // Prevent accidental double resets (we only toggle within your own hand)
   if(state.pickH.has(card)){ state.pickH.delete(card); }
   else if(state.pickP.has(card)){ state.pickP.delete(card); }
   else if(state.pickH.size<2){ state.pickH.add(card); }
@@ -308,7 +322,7 @@ function renderTableView(targetId, picksMap, equities){
     (entry.plo||[]).forEach(c=>ploRow.appendChild(cardChip(c, true)));
     const ploPct=document.createElement('div'); ploPct.className='eq'; ploPct.textContent=`${ploEq}%`; ploRow.appendChild(ploPct);
 
-    seat.innerHTML = `<div class="pname" style="font-weight:700;margin-bottom:6px">${escapeHTML(entry.name||p.name)}</div>`;
+    seat.innerHTML = `<div class="pname">${escapeHTML(entry.name||p.name)}</div>`;
     seat.appendChild(heRow); seat.appendChild(ploRow);
     grid.appendChild(seat);
   });
@@ -353,12 +367,12 @@ window.addEventListener('load', ()=>{
   if(token && room && /^[A-Z0-9]{3,8}$/.test(room)){
     $("room").value = room;
     socket.emit('joinRoom', {roomCode:room, name:'', token}, (res)=>{
-      if(res?.ok){ state.room=room; state.token=res.token; state.you=res.name; roomBadge.textContent=`Room ${room}`; setChatMinimized(false); show(lobby); }
+      if(res?.ok){ state.room=room; state.token=res.token; state.you=res.name; roomBadge.textContent=`Room ${room}`; setChatMinimized(true); show(lobby); }
     });
   } else {
     homeHero.classList.remove('hidden');
     chatBar.classList.add('hidden');
-    document.body.classList.remove('chat-open');
+    document.body.classList.remove('chat-open','chat-min','room-visible');
   }
 });
 
@@ -367,17 +381,18 @@ socket.on('chatBacklog', msgs=>{ chatLog.innerHTML=''; (msgs||[]).forEach(addCha
 socket.on('chatMessage', addChatLine);
 
 socket.on('roomUpdate', data=>{
+  // If a terminated summary is being shown, ignore roomUpdate
+  if(state.stage==='terminated') return;
+
   state.stage = data.stage;
   state.board = data.board||[];
   state.selectionRemainingMs = data.selectionRemainingMs||0;
 
-  // Show appropriate section (chat only in-room)
   if (data.stage==='lobby'){ show(lobby); }
   if (data.stage==='selecting'){ show(selecting); socket.emit('requestYourCards'); startCountdown(); }
   if (data.stage==='revealed'){ show(revealed); }
   if (data.stage==='results'){ show(results); }
 
-  // Update room UI (balances shown consistently from server)
   renderPlayers(data.players);
   anteInput.value = data.ante||0;
   scoopInput.value = data.scoopBonus||0;
@@ -398,20 +413,17 @@ socket.on('roomUpdate', data=>{
   if (data.stage!=='selecting'){ stopCountdown(); }
 });
 
-// IMPORTANT: prevent selection reset while choosing
+// Only reset picks when the deal actually changes
 socket.on('yourCards', ({cards})=>{
   const key = (cards||[]).join(',');
-  // Only reset picks when the deal actually changes
   if(key !== state.dealKey){
     state.dealKey = key;
     state.yourCards = cards||[];
     state.pickH=new Set(); state.pickP=new Set();
-    renderHand(state.yourCards); renderPickBoxes();
   } else {
-    // Keep current picks; simply ensure hand is rendered
     state.yourCards = cards||[];
-    renderHand(state.yourCards); renderPickBoxes();
   }
+  renderHand(state.yourCards); renderPickBoxes();
 });
 
 socket.on('streetUpdate', payload=>{
@@ -445,10 +457,21 @@ socket.on('results', payload=>{
   });
   state.finalEquities={he:heEq, plo:ploEq};
 
-  // Keep balances consistent in player list after results
+  // Balances and per-hand deltas
   if(Array.isArray(payload.players) && payload.players.length){
     window._playersCache = payload.players.map(p=>({id:p.id, name:p.name, balance:+(p.balance||0)}));
     renderPlayers(window._playersCache);
+  }
+  // Show per-hand deltas
+  deltasDiv.innerHTML = '';
+  if(payload.deltas){
+    Object.entries(payload.deltas).forEach(([pid,delta])=>{
+      const name = payload.picks?.[pid]?.name || pid;
+      const d = Number(delta||0);
+      const row = document.createElement('div'); row.className='deltaRow';
+      row.innerHTML = `<div>${escapeHTML(name)}</div><div class="${d>=0?'deltaPlus':'deltaMinus'}">${d>=0?'+':''}${d.toFixed(2)}</div>`;
+      deltasDiv.appendChild(row);
+    });
   }
 
   renderBoard(finalBoardEl, payload.board||[]);
@@ -465,6 +488,24 @@ socket.on('results', payload=>{
 
   renderTableView('tableGridFinal', state.finalPicksByPlayer, state.finalEquities);
   show(results);
+});
+
+// Session summary (after termination; persists 24h)
+socket.on('sessionSummary', ({summary, savedAt})=>{
+  const inf = $("summaryInfo");
+  const when = new Date(savedAt||Date.now()).toLocaleString();
+  let html = `<p><strong>Room:</strong> ${escapeHTML(summary.room)} &nbsp; • &nbsp; <strong>Hands:</strong> ${summary.hands} &nbsp; • &nbsp; <strong>Saved:</strong> ${escapeHTML(when)}</p>`;
+  html += `<div class="winners"><h3>Final Totals</h3>`;
+  (summary.players||[]).forEach(p=>{
+    const bal = Number(p.finalBalance||0);
+    html += `<div class="deltaRow"><div>${escapeHTML(p.name)}</div><div class="${bal>=0?'deltaPlus':'deltaMinus'}">${bal>=0?'+':''}${bal.toFixed(2)}</div></div>`;
+    html += `<div class="hint" style="margin-left:6px">HE wins: ${p.stats.winsHE||0} • PLO wins: ${p.stats.winsPLO||0} • Scoops: ${p.stats.scoops||0} • Hands: ${p.stats.handsPlayed||0}</div>`;
+  });
+  html += `</div>`;
+  inf.innerHTML = html;
+
+  state.stage='terminated';
+  show(terminated);
 });
 
 // Scoop fireworks
