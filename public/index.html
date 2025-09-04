@@ -1,169 +1,19 @@
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
-  <title>Peanuts Poker</title>
-  <link rel="stylesheet" href="/styles.css?v=16"/>
-  <style>
-    .tableGrid { display:grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap:12px; margin-top:12px; }
-    .seat { border:1px solid #2b4f77; border-radius:12px; padding:10px; background:rgba(10,21,34,0.6); }
-    .seat .pname { font-weight:700; margin-bottom:6px; }
-    .handRow { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
-    .handRow .label { width:54px; opacity:.8; }
-    .eq { font-weight:700; margin-left:auto; white-space:nowrap; }
-    .revealBar { display:flex; gap:8px; align-items:center; margin-top:10px; }
-    .toprow { display:flex; gap:8px; align-items:center; justify-content:space-between; }
-  </style>
-</head>
-<body>
-  <div id="app">
-    <div class="card">
+/* Core card visuals */
+.cardchip { display:inline-block; margin:6px; cursor:pointer; position:relative; }
+.cardchip.selected { outline:3px solid #2b8a3e; outline-offset:2px; border-radius:12px; }
+.cardsvg { width:96px; height:134px; }
 
-      <div class="topbar">
-        <div id="roomBadge" class="badge big"></div>
-        <div id="handBadge" class="badge big"></div>
-      </div>
+/* Corners */
+.cardsvg .corner { font:700 22px/1 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; }
+.cardsvg .rank.small { font:800 28px/1 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; }
+.cardsvg .suit-corner { font:700 22px/1 'Segoe UI Symbol', system-ui; }
 
-      <h1>Peanuts Poker</h1>
+/* Pips */
+.cardsvg .pip { font:700 34px/1 'Segoe UI Symbol', system-ui; }
 
-      <!-- Intro / Join -->
-      <div id="intro">
-        <p>Enter a room code to join (3–8 letters/numbers). Share the same code with friends (max 6 per room).</p>
-        <div class="row">
-          <label for="room">Room Code</label>
-          <input id="room" placeholder="e.g., PEANUTS" autocomplete="off"/>
-        </div>
-        <div class="row">
-          <label for="name">Your Name</label>
-          <input id="name" placeholder="e.g., Daniel" autocomplete="off"/>
-        </div>
-        <div class="row">
-          <button id="joinBtn">Join</button>
-        </div>
-      </div>
+/* Ace */
+.cardsvg .aceSuit { font:900 108px/1 'Segoe UI Symbol', system-ui; }
 
-      <!-- Lobby -->
-      <div id="lobby" class="hidden">
-        <div class="toprow">
-          <h2>Lobby</h2>
-          <button class="secondary" id="backToIntro">Leave Room</button>
-        </div>
-        <div id="players"></div>
-        <div class="row">
-          <label for="anteInput">Ante:</label>
-          <input id="anteInput" type="number" min="0" step="1"/>
-          <button id="setAnte" class="secondary">Set Ante</button>
-        </div>
-        <div class="row">
-          <label for="timerInput">Selection Timer (sec):</label>
-          <input id="timerInput" type="number" min="5" max="180" step="1"/>
-          <button id="setTimer" class="secondary">Set Timer</button>
-        </div>
-        <div class="row">
-          <button id="startBtn">Start Hand</button>
-          <button id="sitBtn" data-on="0" class="secondary">Sit Out</button>
-          <button id="terminateBtn" class="danger" title="Host only">Terminate Table</button>
-        </div>
-      </div>
-
-      <!-- Selecting -->
-      <div id="selecting" class="hidden">
-        <div class="toprow">
-          <h2>Select Your Cards</h2>
-          <button class="secondary" id="toLobby1">Back to Lobby</button>
-        </div>
-        <div class="row mono" id="countdownRow" style="gap:8px;">
-          <span>Time left:</span><span id="countdown">--</span>
-        </div>
-        <div class="board" id="yourHand"></div>
-
-        <div class="row" style="align-items:flex-start;">
-          <div>
-            <h3>Hold’em (pick 2)</h3>
-            <div id="pickHoldem" class="pickBox"></div>
-          </div>
-          <div>
-            <h3>PLO (pick 4)</h3>
-            <div id="pickPLO" class="pickBox"></div>
-          </div>
-        </div>
-        <div class="row">
-          <button id="lockBtn">Lock Selections</button>
-        </div>
-
-        <h3>Lock Status</h3>
-        <div id="lockStatus"></div>
-      </div>
-
-      <!-- Revealed -->
-      <div id="revealed" class="hidden">
-        <div class="toprow">
-          <h2>Board</h2>
-          <button class="secondary" id="toLobby2">Back to Lobby</button>
-        </div>
-        <div class="board" id="board"></div>
-        <div class="revealBar">
-          <button id="revealBtn">Reveal Flop</button>
-          <span id="revealHint" class="mono" style="opacity:.8"></span>
-        </div>
-        <h3>Players</h3>
-        <div id="tableGrid" class="tableGrid"></div>
-      </div>
-
-      <!-- Results -->
-      <div id="results" class="hidden">
-        <div class="toprow">
-          <h2>Results</h2>
-          <button class="secondary" id="toLobby3">Back to Lobby</button>
-        </div>
-        <div class="board" id="finalBoard"></div>
-        <div id="winners"></div>
-
-        <h3>Final Table</h3>
-        <!-- NEW: keep everyone’s locked hands visible until Next Hand -->
-        <div id="tableGridFinal" class="tableGrid"></div>
-
-        <div class="row" style="margin-top:10px;">
-          <button id="nextBtn">Next Hand</button>
-        </div>
-      </div>
-
-      <!-- Chat -->
-      <div id="chat">
-        <h3>Room Chat</h3>
-        <div id="chatLog" class="chatlog"></div>
-        <div class="row">
-          <input id="chatInput" placeholder="Type a message…"/>
-          <button id="chatSend">Send</button>
-        </div>
-      </div>
-
-    </div>
-  </div>
-
-  <!-- Fireworks Overlay -->
-  <div id="scoopOverlay" class="overlay">
-    <div class="fireworks">
-      <div class="burst b1"></div>
-      <div class="burst b2"></div>
-      <div class="burst b3"></div>
-    </div>
-    <div class="scoopText" id="scoopTitle">SCOOP!</div>
-  </div>
-
-  <!-- Final Results Modal -->
-  <div id="finalModal" class="modal">
-    <div class="modalContent">
-      <h2 id="finalTitle">Final Results</h2>
-      <div id="finalTable" class="finalTable"></div>
-      <div class="row" style="justify-content:flex-end;">
-        <button id="finalClose">Close</button>
-      </div>
-    </div>
-  </div>
-
-  <script src="/socket.io/socket.io.js"></script>
-  <script src="/client.js?v=16"></script>
-</body>
-</html>
+/* Face cards */
+.cardsvg .faceLetter { font:900 72px/1 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; }
+.cardsvg .faceSuit { font:800 48px/1 'Segoe UI Symbol', system-ui; }
