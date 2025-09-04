@@ -1,3 +1,4 @@
+/* Peanuts Poker — styles.css (sleek home; uncluttered room UI) */
 :root{
   --bg:#0b6623;
   --panel:#102b19;
@@ -70,3 +71,7 @@ h2,h3,h4{ margin:8px 0; }
 .cardsvg.mini{ width:88px; height:124px; }
 .seat .cardsvg{ width:92px; height:130px; }
 .seat .cardsvg.mini{ width:84px; height:118px; }
+
+/* Players list */
+#players .playerRow{ display:flex; justify-content:space-between; align-items:center; background:var(--panel2); padding:10px 12px; border-radius:8px; margin:6px 0; }
+.namechip{ font-weight:800; }
