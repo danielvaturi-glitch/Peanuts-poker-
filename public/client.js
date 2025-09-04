@@ -1,4 +1,6 @@
-// Fixes: ante lock, terminate room, crisp card images, join button navigates
+// Peanuts Poker — client.js
+// Fixes provided: ante lock reflected, terminate room summary, crisp card images.
+// Home remains sleek; only Room+Name on Home; lobby/options inside the room.
 
 const socket = io();
 const $ = id => document.getElementById(id);
@@ -20,7 +22,7 @@ const tableGrid = $("tableGrid"), tableGridFinal = $("tableGridFinal");
 
 // Buttons
 $("joinBtn").onclick = joinRoom;
-$("leaveBtn")?.addEventListener('click', leaveRoom);
+$("leaveBtn").onclick = leaveRoom;
 $("lockAnte").onclick = ()=>socket.emit('lockAnte');
 $("lockScoop").onclick = ()=>socket.emit('lockScoop');
 $("startBtn").onclick = ()=>socket.emit('startHand');
@@ -29,14 +31,14 @@ $("revealBtn").onclick = ()=>socket.emit('revealNextStreet');
 $("nextBtn").onclick = ()=>socket.emit('startHand');
 $("changeSettingsBtn").onclick = ()=>socket.emit('changeSettings');
 $("terminateBtn").onclick = ()=>socket.emit('terminateRoom');
-$("terminateBtn2")?.addEventListener('click', ()=>socket.emit('terminateRoom'));
-$("leaveFromSummary")?.addEventListener('click', leaveRoom);
+$("terminateBtn2").onclick = ()=>socket.emit('terminateRoom');
+$("leaveFromSummary").onclick = leaveRoom;
 
 // Inputs -> server
 anteInput.onchange = ()=>socket.emit('setAnte', Number(anteInput.value)||0);
 scoopInput.onchange = ()=>socket.emit('setScoopBonus', Number(scoopInput.value)||0);
 
-// Identity
+// Identity (localStorage)
 function saveIdentity(token, room){ try{ localStorage.setItem("peanutsToken", token); localStorage.setItem("peanutsRoom", room);}catch{} }
 function clearIdentity(){ try{ localStorage.removeItem("peanutsToken"); localStorage.removeItem("peanutsRoom"); }catch{} }
 function getIdentity(){ try{ return { token:localStorage.getItem("peanutsToken"), room:localStorage.getItem("peanutsRoom") }; }catch{ return {}; } }
@@ -45,14 +47,15 @@ function getIdentity(){ try{ return { token:localStorage.getItem("peanutsToken")
 const state = {
   room:null, token:null, you:null,
   yourCards:[], pickH:new Set(), pickP:new Set(),
-  board:[], stage:'home',
+  stage:'home',
+  board:[],
   picksByPlayer:{}, equities:{he:{},plo:{}},
   finalPicksByPlayer:{}, finalEquities:{he:{},plo:{}}
 };
 
 // Show helper
 function show(section){
-  [lobby, selecting, revealed, results, terminated].forEach(x=>x?.classList.add("hidden"));
+  [lobby, selecting, revealed, results, terminated].forEach(x=>x.classList.add("hidden"));
   if(section) section.classList.remove("hidden");
   if(section===lobby || section===selecting || section===revealed || section===results || section===terminated){
     homeHero.classList.add("hidden");
@@ -77,7 +80,7 @@ function joinRoom(){
     state.room=room; state.token=res.token; state.you=res.name;
     saveIdentity(res.token, room);
     roomBadge.textContent=`Room ${room}`;
-    // Immediately enter room (lobby)
+    // Immediately enter lobby after successful join
     show(lobby);
   });
 }
@@ -179,7 +182,7 @@ function renderPlayers(players=[]){
       <div>${balStr}</div>`;
     playersDiv.appendChild(row);
   });
-  // update lock badges
+  // lock badges reflect server flags
   anteLockedBadge.classList.toggle('hidden', !window._roomAnteLocked);
   scoopLockedBadge.classList.toggle('hidden', !window._roomScoopLocked);
 }
@@ -261,7 +264,6 @@ socket.on('yourCards', ({cards})=>{
 });
 
 socket.on('sessionSummary', ({summary, savedAt})=>{
-  // Minimal summary view
   const s = $("summaryInfo");
   const when = new Date(savedAt||Date.now()).toLocaleString();
   let html = `<p><strong>Room:</strong> ${summary.room} • <strong>Hands:</strong> ${summary.hands} • <strong>Saved:</strong> ${when}</p>`;
