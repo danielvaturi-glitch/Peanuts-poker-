@@ -12,7 +12,7 @@
 *{box-sizing:border-box}
 body{margin:0; font-family:system-ui,-apple-system,"Segoe UI",Roboto,Inter,sans-serif; color:var(--text); background:var(--bg);}
 
-/* Hero / Home */
+/* Hero / Home (only join UI here) */
 .hero{
   display:flex; flex-wrap:wrap; gap:24px; align-items:center; justify-content:center;
   padding:28px 16px; background:linear-gradient(135deg,#07461a,#0b6623 60%,#094e1c);
@@ -32,11 +32,11 @@ button.primary{ background:var(--btn2); }
 button:disabled{ opacity:.6; cursor:not-allowed; }
 .hint{ color:var(--muted); margin-top:8px; font-size:13px; }
 
-/* Screens */
 .hidden{display:none;}
 .screen{ padding:16px; }
 h2,h3,h4{ margin:8px 0; }
 
+/* Settings (room only) */
 .settings{
   display:grid; gap:12px; grid-template-columns: repeat(auto-fit,minmax(260px,1fr));
   background:var(--panel); padding:12px; border-radius:8px; margin-bottom:10px;
@@ -68,12 +68,37 @@ h2,h3,h4{ margin:8px 0; }
 .eq{ margin-left:auto; font-weight:700; }
 
 .winners{ background:var(--panel); padding:10px; border-radius:10px; margin:8px 0; }
+.resultsBtns{ display:flex; gap:8px; }
 
-.chat{ position:fixed; left:0; right:0; bottom:0; background:#0a0a0a; border-top:2px solid #222; }
-.chatLog{ height:140px; overflow:auto; padding:8px; font-size:13px; background:#050505; }
-.chatInputRow{ display:flex; gap:6px; padding:8px; }
+/* Chat sidebar (room only) */
+#app{ transition: padding-right .2s ease; }
+.chatDock{
+  position:fixed; top:0; right:0; bottom:0; width:340px; background:#0a0f0d; border-left:2px solid #1c3325;
+  display:flex; flex-direction:column; z-index:10; box-shadow: -6px 0 20px rgba(0,0,0,.25);
+}
+.chatDock.hidden{ display:none; }
+.chatHead{
+  display:flex; align-items:center; justify-content:space-between; padding:10px 12px; background:#0f1f18; border-bottom:1px solid #1c3325;
+}
+#chatToggle{ background:#163c28; border-radius:6px; padding:6px 10px; }
+.chatBody{ display:flex; flex-direction:column; flex:1; }
+.chatLog{ flex:1; overflow:auto; padding:8px; font-size:13px; background:#050505; }
+.chatInputRow{ display:flex; gap:6px; padding:8px; border-top:1px solid #1c3325; }
 .chatmsg{ margin:2px 0; } .chatmsg.system{ color:#aaa; }
 .who{ font-weight:700; margin-right:6px; }
+
+.chatDock.collapsed{ width:48px; }
+.chatDock.collapsed .chatHead{ justify-content:center; }
+.chatDock.collapsed #chatToggle{ transform: rotate(180deg); }
+.chatDock.collapsed #chatBody{ display:none; }
+.chatCollapsed{
+  display:flex; align-items:center; justify-content:center; padding:10px; font-size:20px; cursor:pointer; user-select:none;
+  border-top:1px solid #1c3325; background:#0f1f18;
+}
+
+/* When chat is open, push content so it doesn't get covered */
+body.chat-open #app{ padding-right:360px; }
+body.chat-open .hero{ margin-right:0; } /* hero is hidden when in room anyway */
 
 /* Card visuals — realistic */
 .cardchip{ display:inline-block; margin:6px; cursor:pointer; position:relative; }
