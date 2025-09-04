@@ -1,43 +1,11 @@
-// public/client.js — full version with realistic card graphics
-
+// public/client.js — minimal to verify page + cards render
 const socket = io();
 const el = id => document.getElementById(id);
 
-const intro = el("intro"),
-      lobby = el("lobby"),
-      selecting = el("selecting"),
-      revealed = el("revealed"),
-      results = el("results");
+const intro = el("intro"), lobby = el("lobby"), selecting = el("selecting"), revealed = el("revealed"), results = el("results");
+const chatBox = el("chat"), yourHandEl = el("yourHand");
 
-const chatBox = el("chat"),
-      chatLog = el("chatLog"),
-      chatInput = el("chatInput"),
-      handBadge = el("handBadge"),
-      roomBadge = el("roomBadge"),
-      finalModal = el("finalModal"),
-      finalTable = el("finalTable"),
-      revealBtn = el("revealBtn"),
-      countdownEl = el("countdown"),
-      lockStatus = el("lockStatus"),
-      yourHandEl = el("yourHand");
-
-function show(v){
-  [intro,lobby,selecting,revealed,results].forEach(x=>x.classList.add("hidden"));
-  v.classList.remove("hidden");
-  chatBox.classList.remove("hidden");
-}
-function escapeHtml(s){ return (s||"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;","&gt;":">&gt;","\"":"&quot;","'":"&#39;"}[m])); }
-function setBadges(roomCode, handNumber){
-  if(roomBadge) roomBadge.textContent=roomCode?`Room ${roomCode}`:'';
-  if(handBadge) handBadge.textContent=handNumber?`Hand #${handNumber}`:'';
-}
-
-const LS_TOKEN_KEY="peanutsToken", LS_ROOM_KEY="peanutsRoom";
-function saveIdentity(token, room){ try{ localStorage.setItem(LS_TOKEN_KEY, token); localStorage.setItem(LS_ROOM_KEY, room);}catch{} }
-function clearIdentity(){ try{ localStorage.removeItem(LS_TOKEN_KEY); localStorage.removeItem(LS_ROOM_KEY);}catch{} }
-function getIdentity(){ try{ return { token:localStorage.getItem(LS_TOKEN_KEY), room:localStorage.getItem(LS_ROOM_KEY) }; }catch{ return {}; } }
-
-/* ------------------ Realistic Card SVGs ------------------ */
+/* ---------- Card rendering (realistic pips) ---------- */
 function cardChip(card){
   if(!card) return document.createElement('div');
   const rank = card[0].toUpperCase();
@@ -50,23 +18,16 @@ function cardChip(card){
   d.innerHTML = svg;
   return d;
 }
-
 function drawCardSVG(rank, suit, red){
   const viewW=200, viewH=280;
   const cornerRank = rank === 'T' ? '10' : rank;
   const suitChar = suitGlyph(suit);
   const textColor = red ? '#C1121F' : '#111';
-
   const pips = pipLayout(rank);
   const hasPips = pips.length > 0;
   const isAce = (rank==='A');
   const isFace = (rank==='J'||rank==='Q'||rank==='K');
-
-  const crownPath = `
-    M 40 0 L 55 -18 L 70 0 L 85 -15 L 100 0 L 115 -15 L 130 0 L 145 -18 L 160 0
-    L 155 22 L 45 22 Z
-  `;
-
+  const crownPath = `M 40 0 L 55 -18 L 70 0 L 85 -15 L 100 0 L 115 -15 L 130 0 L 145 -18 L 160 0 L 155 22 L 45 22 Z`;
   return `
   <svg class="cardsvg" viewBox="0 0 ${viewW} ${viewH}" role="img" aria-label="${cornerRank}${suitChar}">
     <rect x="2" y="2" width="${viewW-4}" height="${viewH-4}" rx="16" ry="16" fill="white" stroke="#333" stroke-width="4"/>
@@ -91,13 +52,10 @@ function drawCardSVG(rank, suit, red){
       </g>` : ''}
   </svg>`;
 }
-
 function suitGlyph(s){ return s==='c'?'♣' : s==='d'?'♦' : s==='h'?'♥' : '♠'; }
 function pipLayout(rank){
-  const cx = 100, top=46, midTop=88, mid=140, midBot=192, bot=234;
-  const left=52, right=148;
-  const T = (x,y)=>({x,y});
-  const Pair = y=>[T(left,y),T(right,y)];
+  const cx=100, top=46, midTop=88, mid=140, midBot=192, bot=234;
+  const left=52, right=148; const T=(x,y)=>({x,y}); const Pair=y=>[T(left,y),T(right,y)];
   switch(rank){
     case '2': return [T(cx,top),T(cx,bot)];
     case '3': return [T(cx,top),T(cx,mid),T(cx,bot)];
@@ -107,7 +65,8 @@ function pipLayout(rank){
     case '7': return [...Pair(top),...Pair(mid),...Pair(bot),T(cx,midTop)];
     case '8': return [...Pair(top),...Pair(mid),...Pair(bot),...Pair(midTop)];
     case '9': return [...Pair(top),...Pair(midTop),...Pair(mid),...Pair(midBot),T(cx,mid)];
-    case '10': case 'T': return [...Pair(top),...Pair(midTop),...Pair(mid),...Pair(midBot),...Pair(bot)];
+    case '10':
+    case 'T': return [...Pair(top),...Pair(midTop),...Pair(mid),...Pair(midBot),...Pair(bot)];
     default: return [];
   }
 }
@@ -115,32 +74,12 @@ function renderPips(pips, suitChar, color){
   return pips.map(({x,y})=>`<text x="${x}" y="${y}" text-anchor="middle" class="pip" fill="${color}">${suitChar}</text>`).join('');
 }
 
-/* State */
-const state={ room:null, token:null, you:null, yourCards:[], pickH:new Set(), pickP:new Set() };
-
-/* Render Hand + Selection */
-function renderHand(cards){
-  yourHandEl.innerHTML='';
-  (cards||[]).forEach(card=> yourHandEl.appendChild(cardChip(card)));
-}
-if (yourHandEl) {
-  yourHandEl.addEventListener('click', e=>{
-    const chip = e.target.closest('.cardchip'); if(!chip) return;
-    toggleSelection(chip.getAttribute('data-card'));
-  });
-}
-function toggleSelection(card){
-  if(!card) return;
-  if(state.pickH.has(card)){ state.pickH.delete(card); }
-  else if(state.pickP.has(card)){ state.pickP.delete(card); }
-  else if(state.pickH.size<2){ state.pickH.add(card); }
-  else if(state.pickP.size<4){ state.pickP.add(card); }
-  renderHand(state.yourCards);
-  [...yourHandEl.querySelectorAll('.cardchip')].forEach(node=>{
-    const c=node.getAttribute('data-card');
-    if(state.pickH.has(c)||state.pickP.has(c)) node.classList.add('selected');
-  });
-}
-
-/* ---- Rest of your existing client.js socket handlers, UI updates, etc. ---- */
-/* (unchanged from the last working version, only cardChip was swapped) */
+/* --- Minimal UI to prove it loads properly --- */
+function show(v){ [intro,lobby,selecting,revealed,results].forEach(x=>x.classList.add("hidden")); v.classList.remove("hidden"); chatBox?.classList.remove("hidden"); }
+document.getElementById('joinBtn').onclick = ()=>{
+  // Demo: show some sample cards so you can verify visuals
+  show(selecting);
+  const sample = ['2h','4s','7d','Tc','Qh','As'];
+  yourHandEl.innerHTML = '';
+  sample.forEach(c => yourHandEl.appendChild(cardChip(c)));
+};
