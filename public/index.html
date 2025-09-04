@@ -4,120 +4,131 @@
   <meta charset="UTF-8" />
   <title>Peanuts Poker</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-
-  <!-- IMPORTANT: stylesheet must be linked like this -->
   <link rel="stylesheet" href="/styles.css" />
-  <style>
-    body { margin:0; font-family:system-ui, sans-serif; background:#0b6623; color:#fff; }
-    h1 { margin:0; padding:16px; text-align:center; background:#004d1a; }
-    .hidden { display:none; }
-    .screen { padding:16px; }
-    .mono { font-family:monospace; }
-    .positive { color:#5f5; }
-    .negative { color:#f55; }
-    .badge { background:#555; color:#fff; border-radius:4px; padding:2px 6px; margin-left:6px; font-size:12px; }
-    .badge.warn { background:#b33; }
-    .playerRow { display:flex; justify-content:space-between; margin:4px 0; }
-    .namechip { font-weight:600; }
-    #players { margin-top:8px; }
-    button { padding:6px 12px; margin:4px; font-size:14px; cursor:pointer; }
-    input { padding:6px; font-size:14px; margin:4px; }
-    #chat { position:fixed; bottom:0; left:0; width:100%; background:#111; border-top:2px solid #333; }
-    #chatLog { height:120px; overflow-y:auto; padding:6px; font-size:13px; background:#000; }
-    #chatInput { width:80%; }
-    .chatmsg { margin:2px 0; }
-    .chatmsg.system { color:#888; }
-    .who { font-weight:600; }
-    .seat { display:inline-block; background:#222; padding:8px; margin:6px; border-radius:8px; }
-    .handRow { display:flex; align-items:center; margin:4px 0; }
-    .handRow .label { width:28px; }
-    .eq { margin-left:8px; }
-    #finalModal { position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.8); display:none; align-items:center; justify-content:center; }
-    #finalModal.show { display:flex; }
-    #finalModal .box { background:#fff; color:#000; padding:20px; border-radius:10px; width:80%; max-width:600px; }
-    .finalRow { display:flex; justify-content:space-between; padding:4px 0; }
-    .finalHeader { font-weight:bold; border-bottom:2px solid #444; }
-  </style>
 </head>
 <body>
-  <h1>Peanuts Poker</h1>
-
-  <!-- Intro -->
-  <div id="intro" class="screen">
-    <h2>Enter a room code</h2>
-    <input id="room" placeholder="Room Code" maxlength="8" />
-    <input id="name" placeholder="Your Name" maxlength="20" />
-    <button id="joinBtn">Join</button>
-  </div>
-
-  <!-- Lobby -->
-  <div id="lobby" class="screen hidden">
-    <h2>Lobby <span id="roomBadge"></span> <span id="handBadge"></span></h2>
-    <div id="players"></div>
-    <p>
-      Ante: <input id="anteInput" type="number" value="100" /> 
-      <button id="setAnte">Set Ante</button>
-    </p>
-    <p>
-      Timer: <input id="timerInput" type="number" value="30" /> sec
-      <button id="setTimer">Set Timer</button>
-    </p>
-    <button id="sitBtn">Sit Out</button>
-    <button id="startBtn">Start Hand</button>
-    <button id="terminateBtn">Terminate Table</button>
-    <button id="backToIntro">Leave Room</button>
-  </div>
-
-  <!-- Selecting -->
-  <div id="selecting" class="screen hidden">
-    <h2>Select Your Cards</h2>
-    <div id="yourHand"></div>
-    <p>Hold’em (pick 2): <span id="pickHoldem"></span></p>
-    <p>PLO (pick 4): <span id="pickPLO"></span></p>
-    <button id="lockBtn">Lock Selections</button>
-    <div id="countdown"></div>
-    <h3>Lock Status</h3>
-    <div id="lockStatus"></div>
-    <button id="toLobby1">Back to Lobby</button>
-  </div>
-
-  <!-- Revealed -->
-  <div id="revealed" class="screen hidden">
-    <h2>Board</h2>
-    <div id="board"></div>
-    <button id="revealBtn">Reveal Flop</button>
-    <h3>Players</h3>
-    <div id="tableGrid"></div>
-    <button id="toLobby2">Back to Lobby</button>
-  </div>
-
-  <!-- Results -->
-  <div id="results" class="screen hidden">
-    <h2>Results</h2>
-    <div id="finalBoard"></div>
-    <div id="winners"></div>
-    <div id="tableGridFinal"></div>
-    <button id="nextBtn">Next Hand</button>
-    <button id="toLobby3">Back to Lobby</button>
-  </div>
-
-  <!-- Chat -->
-  <div id="chat" class="hidden">
-    <div id="chatLog"></div>
-    <input id="chatInput" placeholder="Type message…" />
-    <button id="chatSend">Send</button>
-  </div>
-
-  <!-- Final Modal -->
-  <div id="finalModal">
-    <div class="box">
-      <h2 id="finalTitle">Final Results</h2>
-      <div id="finalTable"></div>
-      <button id="finalClose">Close</button>
+  <header class="hero">
+    <div class="brand">
+      <div class="peanut" aria-hidden="true">🥜</div>
+      <h1>Peanuts Poker</h1>
+      <p>Texas Hold’em + PLO — peanuts style</p>
     </div>
+    <div class="join">
+      <input id="room" placeholder="Room Code" maxlength="8" />
+      <input id="name" placeholder="Your Name" maxlength="20" />
+      <button id="joinBtn">Join Room</button>
+      <div class="hint">Share the same room code with friends (max 6). You can refresh or come back later—your seat persists.</div>
+    </div>
+  </header>
+
+  <!-- LOBBY / SETTINGS -->
+  <section id="lobby" class="screen hidden">
+    <h2><span id="roomBadge"></span> • <span id="handBadge"></span></h2>
+    <div class="settings">
+      <div class="setting">
+        <label>Ante</label>
+        <input id="anteInput" type="number" value="100" min="0" />
+        <button id="lockAnte">Lock Ante</button>
+        <span id="anteLockedBadge" class="badge hidden">Locked</span>
+      </div>
+
+      <div class="setting">
+        <label>Scoop Bonus (optional)</label>
+        <input id="scoopInput" type="number" value="0" min="0" />
+        <button id="lockScoop">Lock Scoop Bonus</button>
+        <span id="scoopLockedBadge" class="badge hidden">Locked</span>
+      </div>
+
+      <div class="setting">
+        <label>Selection Timer</label>
+        <div class="timerRow">
+          <input id="timerInput" type="number" value="45" min="5" max="180" />
+          <button id="unlockTimer">Unlock</button>
+          <button id="lockTimer">Lock</button>
+          <span id="timerLockedBadge" class="badge">Locked</span>
+        </div>
+      </div>
+
+      <div class="controls">
+        <button id="sitBtn" data-on="0">Sit Out</button>
+        <button id="startBtn" class="primary">Play Hand</button>
+        <button id="leaveBtn">Leave Room</button>
+      </div>
+    </div>
+
+    <h3>Players</h3>
+    <div id="players"></div>
+    <div class="kickHint">Timed-out (absent &gt; 10m) players can be removed to free seats.</div>
+  </section>
+
+  <!-- SELECTING -->
+  <section id="selecting" class="screen hidden">
+    <h2>Hand <span id="handBadgeSel"></span> • Select Your Cards</h2>
+    <div class="selectRow">
+      <div>
+        <h4>Your 6 Cards</h4>
+        <div id="yourHand"></div>
+      </div>
+      <div class="picksBox">
+        <h4>Hold’em (pick 2)</h4>
+        <div id="pickHoldem" class="pickRow"></div>
+        <h4>PLO (pick 4)</h4>
+        <div id="pickPLO" class="pickRow"></div>
+        <button id="lockBtn" class="primary">Lock Selections</button>
+        <div class="countdown">Time left: <span id="countdown">—</span></div>
+        <button id="toLobby1">Change Settings</button>
+      </div>
+      <div class="statusBox">
+        <h4>Lock Status</h4>
+        <div id="lockStatus"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- REVEALED / BOARD -->
+  <section id="revealed" class="screen hidden">
+    <div class="boardRow">
+      <div>
+        <h2>Board</h2>
+        <div id="board" class="board"></div>
+      </div>
+      <div class="revealBtns">
+        <button id="revealBtn" class="primary">Reveal Flop</button>
+        <button id="toLobby2">Change Settings</button>
+      </div>
+    </div>
+    <h3>Table</h3>
+    <div id="tableGrid" class="tableGrid"></div>
+  </section>
+
+  <!-- RESULTS -->
+  <section id="results" class="screen hidden">
+    <h2>Results • Hand <span id="handBadgeRes"></span></h2>
+    <div id="finalBoard" class="board"></div>
+    <div id="winners" class="winners"></div>
+    <div id="tableGridFinal" class="tableGrid"></div>
+    <div class="resultsBtns">
+      <button id="nextBtn" class="primary">Play Next Hand</button>
+      <button id="changeSettingsBtn">Change Settings</button>
+    </div>
+  </section>
+
+  <!-- CHAT -->
+  <section id="chat" class="chat hidden">
+    <div id="chatLog" class="chatLog"></div>
+    <div class="chatInputRow">
+      <input id="chatInput" placeholder="Type message…" />
+      <button id="chatSend">Send</button>
+    </div>
+  </section>
+
+  <!-- SCOOP FIREWORKS -->
+  <div id="scoopFX" class="scoopFX hidden">
+    <div class="boom"></div>
+    <div class="boom delay"></div>
+    <div class="scoopText">FULL PEANUT SCOOP!</div>
   </div>
 
-  <!-- Scripts -->
   <script src="/socket.io/socket.io.js"></script>
   <script src="/client.js"></script>
 </body>
