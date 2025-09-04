@@ -1,4 +1,5 @@
-// Peanuts Poker — fixes: ante lock, terminate room, crisp card images (client)
+// Peanuts Poker — fixes: ante lock, terminate room, crisp card images (client uses inline SVG)
+// Paste this as your entire server.js
 
 const express = require('express');
 const http = require('http');
@@ -13,7 +14,7 @@ const PORT = process.env.PORT || 3000;
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
 
-server.listen(PORT, () => console.log(`Peanuts running on ${PORT}`));
+server.listen(PORT, () => console.log(`Peanuts Poker running on ${PORT}`));
 
 /* ---------------------------- Game state ---------------------------- */
 const MAX_PLAYERS = 6;
@@ -40,7 +41,7 @@ function getRoom(code){
     players: new Map(),           // token -> {name, balance}
     socketIndex: new Map(),       // socket.id -> token
     ante: 100,
-    anteLocked: false,            // <— fix starts here (explicit flag)
+    anteLocked: false,            // <— explicit ante lock flag
     scoopBonus: 0,
     scoopLocked: false,
     handNumber: 0,
@@ -130,17 +131,17 @@ io.on('connection', (socket)=>{
     if(!/^[A-Z0-9]{3,8}$/.test(code)) return cb?.({ok:false,error:'Invalid room code'});
     const room=getRoom(code);
 
-    // If terminated, just join & show summary
+    // If terminated, let them in and client will show summary
+    socket.join(code);
+    socket.data.roomCode=code;
+
     if(room.stage==='terminated'){
-      socket.join(code);
-      socket.data.roomCode=code;
       return cb?.({ok:true, name:name||'Guest', token:null});
     }
 
     let useToken = (token && room.players.has(token)) ? token : null;
     if(!useToken){
       if(room.players.size>=MAX_PLAYERS) return cb?.({ok:false,error:'Room full'});
-      // assign new
       useToken = Math.random().toString(36).slice(2);
       let finalName = (name||'Player').trim() || 'Player';
       const taken = new Set([...room.players.values()].map(p=>p.name));
@@ -149,8 +150,6 @@ io.on('connection', (socket)=>{
     }
 
     room.socketIndex.set(socket.id, useToken);
-    socket.join(code);
-    socket.data.roomCode=code;
     socket.data.token=useToken;
 
     io.to(code).emit('roomUpdate', publicState(room));
@@ -166,7 +165,7 @@ io.on('connection', (socket)=>{
   socket.on('lockAnte', ()=>{
     const code=socket.data.roomCode; if(!code) return;
     const room=getRoom(code);
-    room.anteLocked = true;            // <— FIX: lock flag
+    room.anteLocked = true;            // <— FIX: lock flag really toggled
     io.to(code).emit('roomUpdate', publicState(room));
   });
 
@@ -188,11 +187,10 @@ io.on('connection', (socket)=>{
     const room=getRoom(code);
     if(room.stage!=='lobby' && room.stage!=='results') return;
 
-    // auto-lock ante if user forgot
-    if(!room.anteLocked){ room.anteLocked=true; }
+    if(!room.anteLocked){ room.anteLocked=true; } // auto-lock ante if forgotten
 
     const participants = [...room.players.keys()];
-    if(participants.length<2) return; // need at least 2
+    if(participants.length<2) return; // need at least 2 players
 
     room.handNumber++;
     room.stage='selecting';
@@ -255,14 +253,15 @@ io.on('connection', (socket)=>{
   socket.on('terminateRoom', ()=>{
     const code=socket.data.roomCode; if(!code) return;
     const room=getRoom(code);
-    // Build a simple summary and mark terminated
+
     room.summary = {
       room: code,
       hands: room.handNumber,
       players: [...room.players.values()].map(p=>({name:p.name, finalBalance:+(p.balance||0)})),
     };
     room.summarySavedAt = Date.now();
-    room.stage='terminated';          // <— FIX: stage updated
+    room.stage='terminated';          // <— FIX: mark terminated
+
     io.to(code).emit('sessionSummary', { summary: room.summary, savedAt: room.summarySavedAt });
   });
 
