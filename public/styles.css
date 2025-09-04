@@ -12,7 +12,7 @@
 *{box-sizing:border-box}
 body{margin:0; font-family:system-ui,-apple-system,"Segoe UI",Roboto,Inter,sans-serif; color:var(--text); background:var(--bg);}
 
-/* Hero / Home (only join UI here) */
+/* Home */
 .hero{
   display:flex; flex-wrap:wrap; gap:24px; align-items:center; justify-content:center;
   padding:28px 16px; background:linear-gradient(135deg,#07461a,#0b6623 60%,#094e1c);
@@ -36,7 +36,7 @@ button:disabled{ opacity:.6; cursor:not-allowed; }
 .screen{ padding:16px; }
 h2,h3,h4{ margin:8px 0; }
 
-/* Settings (room only) */
+/* Room settings */
 .settings{
   display:grid; gap:12px; grid-template-columns: repeat(auto-fit,minmax(260px,1fr));
   background:var(--panel); padding:12px; border-radius:8px; margin-bottom:10px;
@@ -53,64 +53,63 @@ h2,h3,h4{ margin:8px 0; }
 .positive{ color:#67ff86; } .negative{ color:#ff6b6b; }
 .badge.warn{ background:var(--danger); }
 
-.selectRow{ display:grid; grid-template-columns: 1fr 280px 260px; gap:16px; }
+/* Selecting */
+.selectRow{ display:grid; grid-template-columns: 1fr 300px 260px; gap:16px; }
 .picksBox, .statusBox{ background:var(--panel); padding:12px; border-radius:8px; }
-.pickRow{ min-height:148px; background:rgba(0,0,0,.15); border-radius:8px; padding:6px; }
+.pickRow{ min-height:152px; background:rgba(0,0,0,.15); border-radius:8px; padding:6px; display:flex; flex-wrap:wrap; align-items:center; }
 
+/* Board & table */
 .boardRow{ display:flex; align-items:flex-start; gap:16px; }
-.board{ display:flex; gap:8px; background:var(--panel); padding:12px; border-radius:8px; min-height:150px; }
+.board{ display:flex; gap:8px; background:var(--panel); padding:12px; border-radius:8px; min-height:156px; }
 .revealBtns{ display:flex; flex-direction:column; gap:8px; }
+.tableGrid{ display:grid; grid-template-columns: repeat(auto-fit,minmax(320px,1fr)); gap:14px; }
+.seat{ background:var(--panel); padding:12px; border-radius:10px; }
+.handRow{ display:flex; align-items:center; gap:8px; margin:8px 0; flex-wrap:wrap; }
+.handRow .label{ width:40px; opacity:.85; font-weight:700; }
+.eq{ margin-left:auto; font-weight:800; }
 
-.tableGrid{ display:grid; grid-template-columns: repeat(auto-fit,minmax(280px,1fr)); gap:10px; }
-.seat{ background:var(--panel); padding:10px; border-radius:10px; }
-.handRow{ display:flex; align-items:center; gap:6px; margin:6px 0; }
-.handRow .label{ width:36px; opacity:.8; }
-.eq{ margin-left:auto; font-weight:700; }
-
+/* Winners */
 .winners{ background:var(--panel); padding:10px; border-radius:10px; margin:8px 0; }
 .resultsBtns{ display:flex; gap:8px; }
 
-/* Chat sidebar (room only) */
-#app{ transition: padding-right .2s ease; }
-.chatDock{
-  position:fixed; top:0; right:0; bottom:0; width:340px; background:#0a0f0d; border-left:2px solid #1c3325;
-  display:flex; flex-direction:column; z-index:10; box-shadow: -6px 0 20px rgba(0,0,0,.25);
+/* Chat bottom bar */
+.chatBar{
+  position:fixed; left:0; right:0; bottom:0; background:#0f1f18; border-top:2px solid #1c3325; z-index:10;
+  box-shadow: 0 -6px 18px rgba(0,0,0,.25);
 }
-.chatDock.hidden{ display:none; }
-.chatHead{
-  display:flex; align-items:center; justify-content:space-between; padding:10px 12px; background:#0f1f18; border-bottom:1px solid #1c3325;
-}
-#chatToggle{ background:#163c28; border-radius:6px; padding:6px 10px; }
-.chatBody{ display:flex; flex-direction:column; flex:1; }
-.chatLog{ flex:1; overflow:auto; padding:8px; font-size:13px; background:#050505; }
+.chatHead{ display:flex; align-items:center; justify-content:space-between; padding:8px 10px; }
+#chatCollapse{ background:#163c28; border-radius:6px; padding:6px 10px; }
+.chatBody{ max-height:180px; transition:max-height .2s ease; overflow:hidden; }
+.chatBar.minimized .chatBody{ max-height:0; }
+.chatReveal{ padding:8px 10px; display:flex; align-items:center; gap:6px; background:#0a0f0d; border-top:1px solid #1c3325; cursor:pointer; }
+.chatBar.minimized .chatReveal{ display:flex; }
+.chatBar:not(.minimized) .chatReveal{ display:none; }
+
+.chatLog{ height:140px; overflow:auto; padding:8px; font-size:13px; background:#050505; }
 .chatInputRow{ display:flex; gap:6px; padding:8px; border-top:1px solid #1c3325; }
 .chatmsg{ margin:2px 0; } .chatmsg.system{ color:#aaa; }
 .who{ font-weight:700; margin-right:6px; }
 
-.chatDock.collapsed{ width:48px; }
-.chatDock.collapsed .chatHead{ justify-content:center; }
-.chatDock.collapsed #chatToggle{ transform: rotate(180deg); }
-.chatDock.collapsed #chatBody{ display:none; }
-.chatCollapsed{
-  display:flex; align-items:center; justify-content:center; padding:10px; font-size:20px; cursor:pointer; user-select:none;
-  border-top:1px solid #1c3325; background:#0f1f18;
-}
+/* Push content up so chat doesn't cover it when open */
+body.chat-open { padding-bottom: 210px; }
+body.chat-open .screen { padding-bottom: 16px; }
 
-/* When chat is open, push content so it doesn't get covered */
-body.chat-open #app{ padding-right:360px; }
-body.chat-open .hero{ margin-right:0; } /* hero is hidden when in room anyway */
-
-/* Card visuals — realistic */
+/* Card visuals — crisp vector */
 .cardchip{ display:inline-block; margin:6px; cursor:pointer; position:relative; }
 .cardchip.selected{ outline:3px solid #2b8a3e; outline-offset:2px; border-radius:12px; }
-.cardsvg{ width:96px; height:134px; }
-.cardsvg .corner{ font:700 22px/1 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
-.cardsvg .rank.small{ font:800 28px/1 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
-.cardsvg .suit-corner{ font:700 22px/1 "Segoe UI Symbol", system-ui; }
-.cardsvg .pip{ font:700 34px/1 "Segoe UI Symbol", system-ui; }
-.cardsvg .aceSuit{ font:900 108px/1 "Segoe UI Symbol", system-ui; }
-.cardsvg .faceLetter{ font:900 72px/1 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
-.cardsvg .faceSuit{ font:800 48px/1 "Segoe UI Symbol", system-ui; }
+
+.cardsvg{ width:104px; height:146px; text-rendering:geometricPrecision; shape-rendering:geometricPrecision; }
+.cardsvg.mini{ width:84px; height:118px; }
+.cardsvg .corner{ font:800 22px/1 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Inter; letter-spacing:.2px; }
+.cardsvg .rank.small{ font:900 28px/1 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Inter; letter-spacing:.2px; }
+.cardsvg .pip{ }
+.cardsvg .aceSuit{ }
+.cardsvg .faceLetter{ font:900 72px/1 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Inter; }
+.cardsvg .faceSuit{ }
+
+/* Slightly compact cards inside table seats for readability */
+.seat .cardchip .cardsvg{ width:92px; height:130px; }
+.seat .cardchip.mini .cardsvg{ width:78px; height:108px; }
 
 /* Scoop fireworks */
 .scoopFX{ position:fixed; inset:0; display:flex; align-items:center; justify-content:center; pointer-events:none; }
