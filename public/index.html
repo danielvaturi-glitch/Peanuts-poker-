@@ -117,11 +117,11 @@
     </section>
   </main>
 
-  <!-- CHAT (sidebar; only visible in room) -->
-  <aside id="chatDock" class="chatDock hidden">
+  <!-- CHAT (bottom bar; only visible in room) -->
+  <footer id="chatBar" class="chatBar hidden">
     <div class="chatHead">
       <strong>Room Chat</strong>
-      <button id="chatToggle" title="Collapse">⟨</button>
+      <button id="chatCollapse" title="Minimize">▾</button>
     </div>
     <div id="chatBody" class="chatBody">
       <div id="chatLog" class="chatLog"></div>
@@ -130,8 +130,8 @@
         <button id="chatSend">Send</button>
       </div>
     </div>
-    <div id="chatCollapsed" class="chatCollapsed hidden" title="Expand">💬</div>
-  </aside>
+    <div id="chatReveal" class="chatReveal hidden" title="Expand">💬 Chat</div>
+  </footer>
 
   <!-- SCOOP FIREWORKS -->
   <div id="scoopFX" class="scoopFX hidden">
