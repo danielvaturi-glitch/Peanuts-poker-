@@ -1,13 +1,11 @@
-// Client — full features matching server
+// Client — only adjustments: chat as sidebar w/ minimize, shown only in room
 
 const socket = io();
 const $ = id => document.getElementById(id);
 
-// Sections
+// Sections / Elements
+const homeHero = $("homeHero");
 const lobby = $("lobby"), selecting = $("selecting"), revealed = $("revealed"), results = $("results");
-const chatBox = $("chat"), chatLog = $("chatLog"), chatInput = $("chatInput");
-
-// Badges & elements
 const roomBadge = $("roomBadge"), handBadge = $("handBadge");
 const handBadgeSel = $("handBadgeSel"), handBadgeRes = $("handBadgeRes");
 const anteInput = $("anteInput"), anteLockedBadge = $("anteLockedBadge");
@@ -21,6 +19,15 @@ const finalBoardEl = $("finalBoard"), winnersDiv = $("winners");
 const tableGrid = $("tableGrid"), tableGridFinal = $("tableGridFinal");
 const scoopFX = $("scoopFX");
 
+// Chat sidebar elements
+const chatDock = $("chatDock");
+const chatBody = $("chatBody");
+const chatCollapsed = $("chatCollapsed");
+const chatToggle = $("chatToggle");
+const chatLog = $("chatLog");
+const chatInput = $("chatInput");
+const chatSend = $("chatSend");
+
 // Buttons
 $("joinBtn").onclick = joinRoom;
 $("leaveBtn").onclick = leaveRoom;
@@ -32,13 +39,12 @@ $("sitBtn").onclick = toggleSit;
 $("startBtn").onclick = ()=>socket.emit('startHand');
 $("toLobby1").onclick = ()=>socket.emit('changeSettings');
 $("toLobby2").onclick = ()=>socket.emit('changeSettings');
-$("nextBtn").onclick = ()=>socket.emit('startHand'); // immediate next hand
+$("nextBtn").onclick = ()=>socket.emit('startHand');
 $("changeSettingsBtn").onclick = ()=>socket.emit('changeSettings');
-$("chatSend").onclick = sendChat;
 revealBtn.onclick = ()=>socket.emit('revealNextStreet');
 $("lockBtn").onclick = lockSelections;
 
-// Inputs update server
+// Inputs -> server
 anteInput.onchange = ()=>socket.emit('setAnte', Number(anteInput.value)||0);
 scoopInput.onchange = ()=>socket.emit('setScoopBonus', Number(scoopInput.value)||0);
 timerInput.onchange = ()=>socket.emit('setSelectionSeconds', Number(timerInput.value)||45);
@@ -55,15 +61,57 @@ const state = {
   yourCards: [], pickH: new Set(), pickP: new Set(),
   picksByPlayer:{}, equities:{he:{},plo:{}},
   finalPicksByPlayer:{}, finalEquities:{he:{},plo:{}},
-  board:[], stage:'lobby', selectionRemainingMs:0
+  board:[], stage:'home', selectionRemainingMs:0,
+  chatCollapsed: false
 };
 
+// Show helper: chat only in room screens; never on home
 function show(section){
   [lobby, selecting, revealed, results].forEach(x=>x.classList.add("hidden"));
   section.classList.remove("hidden");
-  chatBox.classList.remove("hidden");
+
+  // Home vs Room visibility
+  if(section===lobby || section===selecting || section===revealed || section===results){
+    homeHero.classList.add("hidden");
+    chatDock.classList.remove("hidden");
+    if(!state.chatCollapsed) document.body.classList.add('chat-open');
+  } else {
+    homeHero.classList.remove("hidden");
+    chatDock.classList.add("hidden");
+    document.body.classList.remove('chat-open');
+  }
 }
 
+// Chat toggle/minimize
+function collapseChat(setCollapsed){
+  state.chatCollapsed = setCollapsed;
+  chatDock.classList.toggle('collapsed', state.chatCollapsed);
+  chatCollapsed.classList.toggle('hidden', !state.chatCollapsed);
+  // Shift content only when chat is visible and not collapsed
+  const inRoom = !(homeHero && !homeHero.classList.contains('hidden'));
+  if(inRoom && !state.chatCollapsed){ document.body.classList.add('chat-open'); }
+  else { document.body.classList.remove('chat-open'); }
+}
+chatToggle.addEventListener('click', ()=> collapseChat(!state.chatCollapsed));
+chatCollapsed.addEventListener('click', ()=> collapseChat(false));
+
+// Chat functions
+function addChatLine(msg){
+  const d=document.createElement('div'); d.className='chatmsg'+(msg.system?' system':'');
+  const who = msg.system?'🛈':escapeHTML(msg.from||'Unknown');
+  const text = escapeHTML(msg.text||'');
+  const time = new Date(msg.ts||Date.now()).toLocaleTimeString();
+  d.innerHTML = `<span class="who">${who}</span> <span class="t">${text}</span> <span style="opacity:.6;float:right">${time}</span>`;
+  chatLog.appendChild(d); chatLog.scrollTop=chatLog.scrollHeight;
+}
+function sendChat(){
+  const t=(chatInput.value||'').trim(); if(!t) return;
+  socket.emit('chatMessage', t); chatInput.value='';
+}
+chatSend.onclick = sendChat;
+chatInput.addEventListener('keydown', e=>{ if(e.key==='Enter') sendChat(); });
+
+// Join / Leave
 function joinRoom(){
   const room = ($("room").value||'').toUpperCase().trim();
   const name = ($("name")?.value||'Player').trim();
@@ -75,18 +123,20 @@ function joinRoom(){
     if(!res?.ok) return alert(res?.error||"Join failed");
     state.room=room; state.token=res.token; state.you=res.name; saveIdentity(res.token, room);
     roomBadge.textContent = `Room ${room}`;
+    collapseChat(false); // open chat by default in room
     show(lobby);
   });
 }
 function leaveRoom(){ clearIdentity(); location.reload(); }
 
+// Sit out
 function toggleSit(){
   const btn=$("sitBtn");
   const on = btn.getAttribute('data-on')==='1';
   socket.emit('toggleSitOut', !on);
 }
 
-// Cards (realistic SVG)
+// Card rendering (unchanged)
 function cardChip(card){
   if(!card) return document.createElement('div');
   const rank=card[0].toUpperCase(), suit=card[1].toLowerCase();
@@ -148,7 +198,7 @@ function renderPips(pips, suitChar, color){
   return pips.map(({x,y})=>`<text x="${x}" y="${y}" text-anchor="middle" class="pip" fill="${color}">${suitChar}</text>`).join('');
 }
 
-// Hand UI
+// Select / picks
 function renderHand(cards){
   yourHandEl.innerHTML=''; (cards||[]).forEach(c=>yourHandEl.appendChild(cardChip(c)));
   refreshSelectedMarks();
@@ -177,7 +227,7 @@ function renderPickBoxes(){
   [...state.pickP].forEach(c=>pickPLOEl.appendChild(cardChip(c)));
 }
 
-// Players & board
+// Players / board
 function renderPlayers(players=[]){
   window._playersCache = players;
   playersDiv.innerHTML='';
@@ -227,8 +277,6 @@ function renderTableView(targetId, picksMap, equities){
     grid.appendChild(seat);
   });
 }
-
-// Reveal UI
 function updateRevealBtn(){
   if(state.stage!=='revealed'){ revealBtn.disabled=true; revealBtn.textContent='Reveal Flop'; return; }
   const n=state.board.length;
@@ -239,19 +287,9 @@ function updateRevealBtn(){
   else { revealBtn.disabled=true; }
 }
 
-// Chat
-function addChatLine(msg){
-  const d=document.createElement('div'); d.className='chatmsg'+(msg.system?' system':'');
-  const who = msg.system?'🛈':escapeHTML(msg.from||'Unknown');
-  const text = escapeHTML(msg.text||'');
-  const time = new Date(msg.ts||Date.now()).toLocaleTimeString();
-  d.innerHTML = `<span class="who">${who}</span> <span class="t">${text}</span> <span style="opacity:.6;float:right">${time}</span>`;
-  chatLog.appendChild(d); chatLog.scrollTop=chatLog.scrollHeight;
-}
-function sendChat(){
-  const t=(chatInput.value||'').trim(); if(!t) return;
-  socket.emit('chatMessage', t); chatInput.value='';
-}
+// Chat sockets
+socket.on('chatBacklog', msgs=>{ chatLog.innerHTML=''; (msgs||[]).forEach(addChatLine); });
+socket.on('chatMessage', addChatLine);
 
 // Helpers
 function escapeHTML(s){ return (s||"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;","&gt;":">&gt;","\"":"&quot;","'":"&#39;"}[m])); }
@@ -282,20 +320,29 @@ window.addEventListener('load', ()=>{
   if(token && room && /^[A-Z0-9]{3,8}$/.test(room)){
     $("room").value = room;
     socket.emit('joinRoom', {roomCode:room, name:'', token}, (res)=>{
-      if(res?.ok){ state.room=room; state.token=res.token; state.you=res.name; roomBadge.textContent=`Room ${room}`; show(lobby); }
+      if(res?.ok){ state.room=room; state.token=res.token; state.you=res.name; roomBadge.textContent=`Room ${room}`; collapseChat(false); show(lobby); }
     });
+  } else {
+    // Ensure home shows and chat hidden on first load
+    homeHero.classList.remove('hidden');
+    chatDock.classList.add('hidden');
+    document.body.classList.remove('chat-open');
   }
 });
 
-// SOCKET EVENTS
-socket.on('chatBacklog', msgs=>{ chatLog.innerHTML=''; (msgs||[]).forEach(addChatLine); });
-socket.on('chatMessage', addChatLine);
-
+// ROOM UPDATES
 socket.on('roomUpdate', data=>{
   state.stage = data.stage;
   state.board = data.board||[];
   state.selectionRemainingMs = data.selectionRemainingMs||0;
 
+  // Show appropriate section; chat only in room screens
+  if (data.stage==='lobby'){ show(lobby); }
+  if (data.stage==='selecting'){ show(selecting); socket.emit('requestYourCards'); startCountdown(); }
+  if (data.stage==='revealed'){ show(revealed); }
+  if (data.stage==='results'){ show(results); }
+
+  // Update room UI
   renderPlayers(data.players);
   anteInput.value = data.ante||0;
   scoopInput.value = data.scoopBonus||0;
@@ -307,18 +354,13 @@ socket.on('roomUpdate', data=>{
   anteLockedBadge.classList.toggle('hidden', !data.anteLocked);
   scoopLockedBadge.classList.toggle('hidden', !data.scoopLocked);
   timerLockedBadge.classList.toggle('hidden', !data.timerLocked);
-  $("sitBtn").setAttribute('data-on','0'); // reset label; server echoes status in players list
-
-  if (data.stage==='lobby'){ show(lobby); }
-  if (data.stage==='selecting'){ show(selecting); socket.emit('requestYourCards'); startCountdown(); }
-  else stopCountdown();
 
   if (data.stage==='revealed' || data.stage==='results'){
     renderBoard(boardEl, state.board);
     renderTableView('tableGrid', state.picksByPlayer, state.equities);
     updateRevealBtn();
   }
-  if (data.stage==='results'){ show(results); }
+  if (data.stage!=='selecting'){ stopCountdown(); }
 });
 
 socket.on('yourCards', ({cards})=>{
@@ -341,7 +383,6 @@ socket.on('streetUpdate', payload=>{
   state.stage='revealed'; updateRevealBtn(); show(revealed);
 });
 
-// Results: keep hands on screen; update balances immediately; fireworks on scoop
 socket.on('results', payload=>{
   const map={};
   for(const [pid,info] of Object.entries(payload.picks||{})){
@@ -379,7 +420,7 @@ socket.on('results', payload=>{
   show(results);
 });
 
-// Scoop fireworks display
+// Scoop fireworks
 function playScoopFX(){
   scoopFX.classList.remove('hidden');
   setTimeout(()=>scoopFX.classList.add('hidden'), 2600);
