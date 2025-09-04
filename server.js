@@ -1,14 +1,4 @@
-// Peanuts Poker — full server
-// - Max 6 players/room
-// - Persistent rejoin via token
-// - Lobby settings: ante lock, scoop bonus (optional) lock, timer lock (default 45s)
-// - Start hand -> 6 cards each, pick 2 HE + 4 PLO, lock; countdown with auto-pick
-// - Reveal Flop/Turn/River, equities updates; results with cumulative balances
-// - Scoop bonus: if locked and scoop occurs, winner collects from all OTHER active players
-// - Absent >10 min -> auto sit-out; anyone can kick absent&timed-out player to free seat
-// - Chat persists until termination
-// - Next Hand goes straight to dealing (same settings); Change Settings jumps to lobby
-// - Fireworks on scoop
+// Peanuts Poker — full server (Play Hand auto-locks ante fix)
 
 const express = require('express');
 const http = require('http');
@@ -106,22 +96,6 @@ function monteCarloEquity(players, board, deck, game, iters=600){
 function itersFor(boardLen){ if(boardLen<=0) return 600; if(boardLen===3) return 400; if(boardLen===4) return 300; return 0; }
 
 // ---------- Rooms ----------
-/**
-rooms: Map<code, {
-  players: Map<token,{name,balance,present,absentSince,sitOut,stats:{handsPlayed,winsHE,winsPLO,scoops}}>
-  socketIndex: Map<socketId,token>,
-  stage: 'lobby'|'selecting'|'revealed'|'results',
-  deck:string[], board:string[],
-  ante:number, anteLocked:boolean,
-  scoopBonus:number, scoopLocked:boolean,
-  timerLocked:boolean, selectionSeconds:number,
-  handNumber:number,
-  selectionDeadline:number|null, selectionTimer:any,
-  holes: Map<token,{ hole:string[], pickHoldem:string[], pickPLO:string[], locked:boolean }>,
-  chat:{from,text,ts,system?}[],
-  equities:{he:Record<token,{win:number,tie:number}>, plo:Record<token,{win:number,tie:number}>}
-}>
-*/
 const rooms = new Map();
 
 function getRoom(code){
@@ -332,7 +306,7 @@ io.on('connection', socket=>{
   socket.on('setSelectionSeconds',(s)=>{
     const code=socket.data.roomCode; if(!code) return;
     const room=getRoom(code);
-    if(room.timerLocked) return; // must unlock first
+    if(room.timerLocked) return;
     const val=Math.max(5, Math.min(180, Number(s)||45));
     room.selectionSeconds=val;
     io.to(code).emit('roomUpdate', publicState(room));
@@ -348,7 +322,7 @@ io.on('connection', socket=>{
   socket.on('toggleSitOut', sitOut=>{
     const code=socket.data.roomCode; if(!code) return;
     const room=getRoom(code); const tok=socket.data.token; const p=room.players.get(tok); if(!p) return;
-    if(room.stage!=='lobby') return; // only before dealing
+    if(room.stage!=='lobby') return;
     p.sitOut=!!sitOut;
     systemMsg(room, `${p.name} is now ${p.sitOut?'sitting out':'active'}.`);
     io.to(code).emit('chatMessage',{from:'system',text:`${p.name} is now ${p.sitOut?'sitting out':'active'}.`,ts:Date.now(),system:true});
@@ -358,7 +332,7 @@ io.on('connection', socket=>{
   socket.on('kickPlayer', (tokenToKick)=>{
     const code=socket.data.roomCode; if(!code) return;
     const room=getRoom(code); const p=room.players.get(tokenToKick); if(!p) return;
-    if(p.present) return; // only absent
+    if(p.present) return;
     if(!p.absentSince || Date.now()-p.absentSince < ABSENCE_TIMEOUT_MS) return;
     room.players.delete(tokenToKick);
     systemMsg(room, `Seat freed (kicked timed-out player).`);
@@ -366,12 +340,19 @@ io.on('connection', socket=>{
     io.to(code).emit('roomUpdate', publicState(room));
   });
 
-  // Start hand
+  // --- FIXED: Start hand will auto-lock the ante if not locked, then deal ---
   socket.on('startHand', ()=>{
     const code=socket.data.roomCode; if(!code) return;
     const room=getRoom(code);
-    if(!room.anteLocked) return; // must lock ante
+
     if(room.stage!=='lobby' && room.stage!=='results') return;
+
+    // Auto-lock ante if not already locked
+    if(!room.anteLocked){
+      room.anteLocked = true;
+      systemMsg(room, `Ante auto-locked at ${room.ante}.`);
+      io.to(code).emit('chatMessage',{from:'system',text:`Ante auto-locked at ${room.ante}.`,ts:Date.now(),system:true});
+    }
 
     const participants=[...room.players.entries()].filter(([_,p])=>!p.sitOut).map(([t])=>t);
     if(participants.length<2) return;
@@ -380,7 +361,7 @@ io.on('connection', socket=>{
     room.holes=new Map(); room.equities={he:{},plo:{}};
     clearSelectionTimer(room);
 
-    // Charge ante & deal
+    // Charge ante & deal 6 cards each
     for(const tok of participants){
       const p=room.players.get(tok);
       const hole=[room.deck.pop(),room.deck.pop(),room.deck.pop(),room.deck.pop(),room.deck.pop(),room.deck.pop()];
@@ -388,7 +369,7 @@ io.on('connection', socket=>{
       p.balance=(p.balance||0)-room.ante;
     }
 
-    // Send hole cards to each connected player
+    // deliver hole cards to connected sockets
     for(const [sid,tok] of room.socketIndex.entries()){
       const seat=room.holes.get(tok); if(seat) io.to(sid).emit('yourCards',{cards:seat.hole});
     }
@@ -470,7 +451,6 @@ io.on('connection', socket=>{
 });
 
 function scoreAndFinish(room, code){
-  // Evaluate
   const scoresH=[], scoresP=[];
   for(const [tok,seat] of room.holes.entries()){
     scoresH.push({tok,score:evalHoldem(seat.pickHoldem, room.board)});
@@ -481,7 +461,6 @@ function scoreAndFinish(room, code){
   const topH=scoresH.filter(x=>cmp5(x.score,scoresH[0].score)===0).map(x=>x.tok);
   const topP=scoresP.filter(x=>cmp5(x.score,scoresP[0].score)===0).map(x=>x.tok);
 
-  // Final equities: winners show 100%
   const eqHE={}, eqPLO={};
   for(const [tok] of room.holes.entries()){
     eqHE[tok]={ win: topH.includes(tok)?100:0, tie:0 };
@@ -490,21 +469,18 @@ function scoreAndFinish(room, code){
   room.equities={ he:eqHE, plo:eqPLO };
   io.to(code).emit('streetUpdate', { stage:'river', board:room.board, equities:room.equities, picks:buildPicks(room) });
 
-  // Pot split (balances carry forward)
   const pot=room.ante * room.holes.size;
   const heShare=(pot/2)/Math.max(1, topH.length);
   const ploShare=(pot/2)/Math.max(1, topP.length);
   for(const t of topH){ const p=room.players.get(t); p.balance=(p.balance||0)+heShare; }
   for(const t of topP){ const p=room.players.get(t); p.balance=(p.balance||0)+ploShare; }
 
-  // Stats
   const activeTokens=[...room.holes.keys()];
   activeTokens.forEach(tok=> room.players.get(tok).stats.handsPlayed++);
   topH.forEach(tok=> room.players.get(tok).stats.winsHE++);
   topP.forEach(tok=> room.players.get(tok).stats.winsPLO++);
   const scoops=(topH.length===1 && topP.length===1 && topH[0]===topP[0]) ? [topH[0]] : [];
 
-  // Scoop bonus (optional)
   let scoopBonusApplied = 0;
   if (scoops.length && room.scoopLocked && room.scoopBonus>0){
     const winner = scoops[0];
@@ -516,7 +492,6 @@ function scoreAndFinish(room, code){
   }
   if (scoops.length) room.players.get(scoops[0]).stats.scoops++;
 
-  // Compose payload (include balances snapshot for immediate update)
   const picks={}; for(const [tok,seat] of room.holes.entries()){
     picks[tok]={ name:room.players.get(tok).name, holdem:seat.pickHoldem, plo:seat.pickPLO, hole:seat.hole };
   }
