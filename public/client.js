@@ -1,35 +1,43 @@
-// Peanuts Poker — client.js
-// Fixes provided: ante lock reflected, terminate room summary, crisp card images.
-// Home remains sleek; only Room+Name on Home; lobby/options inside the room.
+// Peanuts Poker — client gameplay: selection clock + bottom chat + tidy table + equities + cumulative totals
+// Home screen untouched.
 
 const socket = io();
 const $ = id => document.getElementById(id);
 
-// Sections
+// Sections / Elements
 const homeHero = $("homeHero");
 const lobby = $("lobby"), selecting = $("selecting"), revealed = $("revealed"), results = $("results"), terminated = $("terminated");
-
-// Elements
 const roomBadge = $("roomBadge"), handBadge = $("handBadge");
 const handBadgeSel = $("handBadgeSel"), handBadgeRes = $("handBadgeRes");
 const anteInput = $("anteInput"), anteLockedBadge = $("anteLockedBadge");
 const scoopInput = $("scoopInput"), scoopLockedBadge = $("scoopLockedBadge");
+const timerInput = $("timerInput"), timerLockedBadge = $("timerLockedBadge");
 const playersDiv = $("players");
 const yourHandEl = $("yourHand"), pickHoldemEl = $("pickHoldem"), pickPLOEl = $("pickPLO");
+const lockStatus = $("lockStatus"), countdownEl = $("countdown");
 const boardEl = $("board"), revealBtn = $("revealBtn");
 const finalBoardEl = $("finalBoard"), winnersDiv = $("winners");
 const tableGrid = $("tableGrid"), tableGridFinal = $("tableGridFinal");
+
+// Chat elements
+const chatBar = $("chatBar"), chatLog = $("chatLog");
+const chatInput = $("chatInput"), chatSend = $("chatSend");
+const chatCollapse = $("chatCollapse"), chatReveal = $("chatReveal");
 
 // Buttons
 $("joinBtn").onclick = joinRoom;
 $("leaveBtn").onclick = leaveRoom;
 $("lockAnte").onclick = ()=>socket.emit('lockAnte');
 $("lockScoop").onclick = ()=>socket.emit('lockScoop');
+$("unlockTimer").onclick = ()=>socket.emit('setSelectionSeconds', Number(timerInput.value)||45);
+$("lockTimer").onclick = ()=>{ /* purely visual lock badge */ timerLockedBadge.classList.remove('hidden'); };
 $("startBtn").onclick = ()=>socket.emit('startHand');
-$("lockBtn").onclick = lockSelections;
-$("revealBtn").onclick = ()=>socket.emit('revealNextStreet');
+$("toLobby1")?.addEventListener('click', ()=>socket.emit('changeSettings'));
+$("toLobby2")?.addEventListener('click', ()=>socket.emit('changeSettings'));
 $("nextBtn").onclick = ()=>socket.emit('startHand');
 $("changeSettingsBtn").onclick = ()=>socket.emit('changeSettings');
+revealBtn.onclick = ()=>socket.emit('revealNextStreet');
+$("lockBtn").onclick = lockSelections;
 $("terminateBtn").onclick = ()=>socket.emit('terminateRoom');
 $("terminateBtn2").onclick = ()=>socket.emit('terminateRoom');
 $("leaveFromSummary").onclick = leaveRoom;
@@ -37,6 +45,7 @@ $("leaveFromSummary").onclick = leaveRoom;
 // Inputs -> server
 anteInput.onchange = ()=>socket.emit('setAnte', Number(anteInput.value)||0);
 scoopInput.onchange = ()=>socket.emit('setScoopBonus', Number(scoopInput.value)||0);
+timerInput.onchange = ()=>socket.emit('setSelectionSeconds', Number(timerInput.value)||45);
 
 // Identity (localStorage)
 function saveIdentity(token, room){ try{ localStorage.setItem("peanutsToken", token); localStorage.setItem("peanutsRoom", room);}catch{} }
@@ -47,22 +56,44 @@ function getIdentity(){ try{ return { token:localStorage.getItem("peanutsToken")
 const state = {
   room:null, token:null, you:null,
   yourCards:[], pickH:new Set(), pickP:new Set(),
-  stage:'home',
-  board:[],
+  board:[], stage:'home',
+  selectionRemainingMs: 0,
   picksByPlayer:{}, equities:{he:{},plo:{}},
-  finalPicksByPlayer:{}, finalEquities:{he:{},plo:{}}
+  finalPicksByPlayer:{}, finalEquities:{he:{},plo:{}},
+  chatMin:true
 };
 
-// Show helper
+// Show helper (chat visible only in-room)
 function show(section){
   [lobby, selecting, revealed, results, terminated].forEach(x=>x.classList.add("hidden"));
   if(section) section.classList.remove("hidden");
-  if(section===lobby || section===selecting || section===revealed || section===results || section===terminated){
-    homeHero.classList.add("hidden");
-  } else {
-    homeHero.classList.remove("hidden");
-  }
+  const inRoom = (section===lobby || section===selecting || section===revealed || section===results || section===terminated);
+  if(inRoom){ homeHero.classList.add("hidden"); chatBar.classList.remove("hidden"); setChatMinimized(true); }
+  else { homeHero.classList.remove("hidden"); chatBar.classList.add("hidden"); }
 }
+
+// Chat minimize/expand
+function setChatMinimized(min){
+  state.chatMin = min;
+  chatBar.classList.toggle('minimized', !!min);
+}
+chatCollapse.addEventListener('click', ()=> setChatMinimized(true));
+chatReveal.addEventListener('click', ()=> setChatMinimized(false));
+
+function addChatLine(msg){
+  const d=document.createElement('div'); d.className='chatmsg'+(msg.system?' system':'');
+  const who = msg.system?'🛈':(msg.from||'');
+  const text = (msg.text||'');
+  const time = new Date(msg.ts||Date.now()).toLocaleTimeString();
+  d.innerHTML = `<span class="who">${escapeHTML(who)}</span> <span class="t">${escapeHTML(text)}</span> <span style="opacity:.6;float:right">${time}</span>`;
+  chatLog.appendChild(d); chatLog.scrollTop=chatLog.scrollHeight;
+}
+function sendChat(){
+  const t=(chatInput.value||'').trim(); if(!t) return;
+  socket.emit('chatMessage', t); chatInput.value='';
+}
+chatSend.onclick = sendChat;
+chatInput.addEventListener('keydown', e=>{ if(e.key==='Enter') sendChat(); });
 
 /* --------------------------- Join / Leave -------------------------- */
 function joinRoom(){
@@ -80,7 +111,6 @@ function joinRoom(){
     state.room=room; state.token=res.token; state.you=res.name;
     saveIdentity(res.token, room);
     roomBadge.textContent=`Room ${room}`;
-    // Immediately enter lobby after successful join
     show(lobby);
   });
 }
@@ -169,6 +199,8 @@ function cardChip(card, mini=false){
 }
 
 /* ----------------------------- UI render -------------------------- */
+function escapeHTML(s){ return (s||"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;","&gt;":">&gt;","\"":"&quot;","'":"&#39;"}[m])); }
+
 function renderPlayers(players=[]){
   playersDiv.innerHTML='';
   players.forEach(p=>{
@@ -176,16 +208,16 @@ function renderPlayers(players=[]){
     const bal=Number(p.balance||0), balStr=(bal>=0?'+':'')+bal.toFixed(2);
     row.innerHTML=`
       <div>
-        <span class="namechip">${p.name}</span>
+        <span class="namechip">${escapeHTML(p.name)}</span>
         ${p.locked?'<span class="badge">Locked</span>':''}
       </div>
       <div>${balStr}</div>`;
     playersDiv.appendChild(row);
   });
-  // lock badges reflect server flags
   anteLockedBadge.classList.toggle('hidden', !window._roomAnteLocked);
   scoopLockedBadge.classList.toggle('hidden', !window._roomScoopLocked);
 }
+
 function renderHand(cards){
   yourHandEl.innerHTML='';
   (cards||[]).forEach(c=>{
@@ -195,13 +227,16 @@ function renderHand(cards){
   });
   refreshPicks();
 }
+
 function toggleSelection(card){
+  if(state.stage!=='selecting') return;
   if(state.pickH.has(card)){ state.pickH.delete(card); }
   else if(state.pickP.has(card)){ state.pickP.delete(card); }
   else if(state.pickH.size<2){ state.pickH.add(card); }
   else if(state.pickP.size<4){ state.pickP.add(card); }
   refreshPicks();
 }
+
 function refreshPicks(){
   pickHoldemEl.innerHTML=''; pickPLOEl.innerHTML='';
   [...state.pickH].forEach(c=>pickHoldemEl.appendChild(cardChip(c,true)));
@@ -212,13 +247,55 @@ function refreshPicks(){
     node.classList.toggle('selected', state.pickH.has(c)||state.pickP.has(c));
   });
 }
+
 function renderBoard(el,cards){ el.innerHTML=''; (cards||[]).forEach(c=>el.appendChild(cardChip(c,false))); }
+
+function renderTableView(targetId, picksMap, equities){
+  const grid=$(targetId); grid.innerHTML='';
+  const plist = window._playersCache || [];
+  plist.forEach(p=>{
+    const entry = picksMap[p.id];
+    if(!entry) return;
+    const seat=document.createElement('div'); seat.className='seat';
+
+    const heEq=((equities?.he?.[p.id]?.win)??0).toFixed(1);
+    const ploEq=((equities?.plo?.[p.id]?.win)??0).toFixed(1);
+
+    const heRow=document.createElement('div'); heRow.className='handRow';
+    heRow.innerHTML='<div class="label">HE</div>';
+    (entry.holdem||[]).forEach(c=>heRow.appendChild(cardChip(c, true)));
+    heRow.innerHTML += `<div class="eq">${heEq}%</div>`;
+
+    const ploRow=document.createElement('div'); ploRow.className='handRow';
+    ploRow.innerHTML='<div class="label">PLO</div>';
+    (entry.plo||[]).forEach(c=>ploRow.appendChild(cardChip(c, true)));
+    ploRow.innerHTML += `<div class="eq">${ploEq}%</div>`;
+
+    seat.innerHTML = `<div class="pname">${escapeHTML(entry.name||p.name)}</div>`;
+    seat.appendChild(heRow); seat.appendChild(ploRow);
+    grid.appendChild(seat);
+  });
+}
 
 /* ---------------------------- Actions ----------------------------- */
 function lockSelections(){
   if(state.pickH.size!==2 || state.pickP.size!==4){ alert("Pick 2 for HE and 4 for PLO."); return; }
-  socket.emit('makeSelections', { holdemTwo:[...state.pickH], ploFour:[...state.pickP] });
+  socket.emit('makeSelections', { holdemTwo:[...state.pickH], ploFour:[...state.pickP] }, (res)=>{
+    if(!res?.ok) alert(res?.error||'Could not lock');
+  });
 }
+
+/* --------------------------- Countdown ---------------------------- */
+let cdTimer=null;
+function startCountdown(){
+  stopCountdown();
+  cdTimer=setInterval(()=>{
+    const ms=Math.max(0, state.selectionRemainingMs||0);
+    const s = Math.ceil(ms/1000);
+    countdownEl.textContent = s+'s';
+  }, 250);
+}
+function stopCountdown(){ if(cdTimer){ clearInterval(cdTimer); cdTimer=null; } }
 
 /* --------------------------- Auto rejoin -------------------------- */
 window.addEventListener('load', ()=>{
@@ -236,19 +313,32 @@ window.addEventListener('load', ()=>{
 });
 
 /* -------------------------- Socket events ------------------------- */
+socket.on('chatBacklog', msgs=>{ chatLog.innerHTML=''; (msgs||[]).forEach(addChatLine); });
+socket.on('chatMessage', addChatLine);
+
+socket.on('selectionTick', ({remainingMs})=>{
+  state.selectionRemainingMs = remainingMs||0;
+  if(selecting && !selecting.classList.contains('hidden')) startCountdown();
+});
+
 socket.on('roomUpdate', data=>{
   state.stage = data.stage;
   window._roomAnteLocked = !!data.anteLocked;
   window._roomScoopLocked = !!data.scoopLocked;
 
-  if(data.stage==='lobby'){ show(lobby); }
-  if(data.stage==='selecting'){ show(selecting); socket.emit('requestYourCards'); }
-  if(data.stage==='revealed'){ show(revealed); }
-  if(data.stage==='results'){ show(results); }
+  if(data.stage==='lobby'){ show(lobby); stopCountdown(); }
+  if(data.stage==='selecting'){ show(selecting); socket.emit('requestYourCards'); startCountdown(); }
+  if(data.stage==='revealed'){ show(revealed); stopCountdown(); }
+  if(data.stage==='results'){ show(results); stopCountdown(); }
 
-  renderPlayers(data.players);
+  // cache players for table rendering and balances (cumulative totals)
+  window._playersCache = data.players || [];
+  renderPlayers(window._playersCache);
+
   anteInput.value = data.ante||0;
   scoopInput.value = data.scoopBonus||0;
+  timerInput.value = data.selectionSeconds||45;
+
   handBadge.textContent = `Hand #${data.handNumber||0}`;
   handBadgeSel.textContent = `${data.handNumber||0}`;
   handBadgeRes.textContent = `${data.handNumber||0}`;
@@ -263,23 +353,62 @@ socket.on('yourCards', ({cards})=>{
   renderHand(state.yourCards);
 });
 
-socket.on('sessionSummary', ({summary, savedAt})=>{
-  const s = $("summaryInfo");
-  const when = new Date(savedAt||Date.now()).toLocaleString();
-  let html = `<p><strong>Room:</strong> ${summary.room} • <strong>Hands:</strong> ${summary.hands} • <strong>Saved:</strong> ${when}</p>`;
-  html += `<div class="winners"><h3>Final Totals</h3>`;
-  (summary.players||[]).forEach(p=>{
-    const bal = Number(p.finalBalance||0);
-    html += `<div class="handRow"><div class="pname">${p.name}</div><div class="${bal>=0?'eq':'eq'}">${bal>=0?'+':''}${bal.toFixed(2)}</div></div>`;
+socket.on('streetUpdate', payload=>{
+  if(payload?.equities) state.equities=payload.equities;
+  if(payload?.picks){
+    const m={};
+    for(const [pid,info] of Object.entries(payload.picks)){
+      m[pid]={ name:info.name, holdem:info.holdem||[], plo:info.plo||[] };
+    }
+    state.picksByPlayer=m;
+  }
+  state.board = payload?.board || state.board;
+  renderBoard(boardEl, state.board);
+  renderTableView('tableGrid', state.picksByPlayer, state.equities);
+  state.stage='revealed'; updateRevealButton(); show(revealed);
+});
+
+socket.on('results', payload=>{
+  const map={};
+  for(const [pid,info] of Object.entries(payload.picks||{})){
+    map[pid]={ name:info.name, holdem:info.holdem||[], plo:info.plo||[] };
+  }
+  state.finalPicksByPlayer=map;
+
+  // Show winners text + keep final 100% on winner rows (client-side)
+  const heW = payload.winners?.holdem || [];
+  const ploW = payload.winners?.plo || [];
+  const heEq={}, ploEq={};
+  Object.keys(map).forEach(pid=>{
+    heEq[pid]={win: heW.includes(pid)?100:0, tie:0};
+    ploEq[pid]={win: ploW.includes(pid)?100:0, tie:0};
   });
-  html += `</div>`;
-  s.innerHTML=html;
-  show(terminated);
+  state.finalEquities={he:heEq, plo:ploEq};
+
+  // Update players balances display (cumulative)
+  if(Array.isArray(window._playersCache) && window._playersCache.length){
+    renderPlayers(window._playersCache);
+  }
+
+  renderBoard(finalBoardEl, payload.board||[]);
+  const nameOf=id=>payload.picks[id]?.name || id;
+  const holdem=(heW).map(nameOf).join(', ')||'-';
+  const plo=(ploW).map(nameOf).join(', ')||'-';
+  let html = `<p><strong>Hold’em:</strong> ${escapeHTML(holdem)}</p>
+              <p><strong>PLO:</strong> ${escapeHTML(plo)}</p>`;
+  if (heW.length && ploW.length && heW.some(id=>ploW.includes(id))) {
+    const scooper = heW.find(id=>ploW.includes(id));
+    html += `<p>💥 <strong>Full Peanut Scoop</strong> by ${escapeHTML(nameOf(scooper))}</p>`;
+  }
+  winnersDiv.innerHTML = html;
+
+  renderTableView('tableGridFinal', state.finalPicksByPlayer, state.finalEquities);
+  show(results);
 });
 
 /* ----------------------------- UI bits ---------------------------- */
-function updateRevealButton(board){
-  const n=(board||[]).length;
+function updateRevealButton(){
+  const n=state.board.length;
   if(state.stage!=='revealed'){ revealBtn.disabled=true; revealBtn.textContent='Reveal Flop'; return; }
   revealBtn.disabled=false;
   if(n===0) revealBtn.textContent='Reveal Flop';
