@@ -1,4 +1,3 @@
-<!-- Peanuts Poker — index.html (sleek home hero; room & name only on home) -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -8,7 +7,7 @@
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
-  <!-- HOME -->
+  <!-- HOME (unchanged) -->
   <header class="hero" id="homeHero">
     <div class="brand">
       <div class="peanut">🥜</div>
@@ -43,6 +42,14 @@
           <span id="scoopLockedBadge" class="badge hidden">Locked</span>
         </div>
 
+        <div class="setting">
+          <label>Selection Clock (seconds)</label>
+          <input id="timerInput" type="number" value="45" min="10" max="180" />
+          <button id="lockTimer">Lock</button>
+          <button id="unlockTimer">Unlock</button>
+          <span id="timerLockedBadge" class="badge hidden">Locked</span>
+        </div>
+
         <div class="controls">
           <button id="startBtn" class="primary">Play Hand</button>
           <button id="leaveBtn">Leave Room</button>
@@ -56,7 +63,10 @@
 
     <!-- SELECTING -->
     <section id="selecting" class="screen hidden">
-      <h2>Hand <span id="handBadgeSel"></span> • Select Your Cards</h2>
+      <div class="rowBetween">
+        <h2>Hand <span id="handBadgeSel"></span> • Select Your Cards</h2>
+        <div class="clock">⏱ <span id="countdown">45s</span></div>
+      </div>
       <div class="selectRow">
         <div>
           <h4>Your 6 Cards</h4>
@@ -68,15 +78,18 @@
           <h4>PLO (pick 4)</h4>
           <div id="pickPLO" class="pickRow"></div>
           <button id="lockBtn" class="primary">Lock Selections</button>
+          <div class="hint" id="lockStatus"></div>
         </div>
       </div>
     </section>
 
     <!-- REVEALED -->
     <section id="revealed" class="screen hidden">
-      <h2>Board</h2>
+      <div class="rowBetween">
+        <h2>Board</h2>
+        <div class="controlsRight"><button id="revealBtn" class="primary">Reveal Flop</button></div>
+      </div>
       <div id="board" class="board"></div>
-      <button id="revealBtn" class="primary">Reveal Flop</button>
 
       <h3>Table</h3>
       <div id="tableGrid" class="tableGrid"></div>
@@ -103,6 +116,22 @@
       <button id="leaveFromSummary">Leave Room</button>
     </section>
   </main>
+
+  <!-- Chat bar (bottom; minimized by default; only in-room) -->
+  <div id="chatBar" class="chatbar hidden minimized">
+    <div class="chatHeader">
+      <button id="chatReveal" title="Open chat">💬</button>
+      <div class="title">Room Chat</div>
+      <button id="chatCollapse" title="Minimize">—</button>
+    </div>
+    <div id="chatBody" class="chatBody">
+      <div id="chatLog" class="chatLog"></div>
+      <div class="chatSendRow">
+        <input id="chatInput" placeholder="Type a message…" />
+        <button id="chatSend">Send</button>
+      </div>
+    </div>
+  </div>
 
   <script src="/socket.io/socket.io.js"></script>
   <script src="/client.js"></script>
