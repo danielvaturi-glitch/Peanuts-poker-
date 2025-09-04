@@ -1,4 +1,4 @@
-// Peanuts Poker — full server (Play Hand auto-locks ante fix)
+// Peanuts Poker — session tally + termination + tidy equities & chat bottom padding support
 
 const express = require('express');
 const http = require('http');
@@ -18,6 +18,7 @@ server.listen(PORT, () => console.log(`Peanuts server listening on ${PORT}`));
 
 const MAX_PLAYERS = 6;
 const ABSENCE_TIMEOUT_MS = 10 * 60 * 1000;
+const SUMMARY_TTL_MS = 24 * 60 * 60 * 1000;
 
 // ---------- Cards & Hand Evaluation ----------
 const SUITS = ['c','d','h','s'];
@@ -99,23 +100,36 @@ function itersFor(boardLen){ if(boardLen<=0) return 600; if(boardLen===3) return
 const rooms = new Map();
 
 function getRoom(code){
-  if(!rooms.has(code)){
-    rooms.set(code, {
-      players:new Map(),
-      socketIndex:new Map(),
-      stage:'lobby',
-      deck:[], board:[],
-      ante:100, anteLocked:false,
-      scoopBonus:0, scoopLocked:false,
-      timerLocked:true, selectionSeconds:45,
-      handNumber:0,
-      selectionDeadline:null, selectionTimer:null,
-      holes:new Map(),
-      chat:[],
-      equities:{ he:{}, plo:{} }
-    });
+  const now = Date.now();
+  if(rooms.has(code)){
+    const r=rooms.get(code);
+    // auto-reset terminated rooms after 24h
+    if(r.stage==='terminated' && r.summarySavedAt && (now - r.summarySavedAt > SUMMARY_TTL_MS)){
+      rooms.delete(code);
+    } else {
+      return r;
+    }
   }
-  return rooms.get(code);
+  const room = {
+    players:new Map(),
+    socketIndex:new Map(),
+    stage:'lobby',
+    deck:[], board:[],
+    ante:100, anteLocked:false,
+    scoopBonus:0, scoopLocked:false,
+    timerLocked:true, selectionSeconds:45,
+    handNumber:0,
+    selectionDeadline:null, selectionTimer:null,
+    holes:new Map(),
+    chat:[],
+    equities:{ he:{}, plo:{} },
+    lastStartBalances:null,     // snapshot at start of each hand (pre-ante)
+    // termination summary
+    summary:null,
+    summarySavedAt:null
+  };
+  rooms.set(code, room);
+  return room;
 }
 
 function genToken(){ return Math.random().toString(36).slice(2)+Math.random().toString(36).slice(2); }
@@ -211,6 +225,11 @@ function recomputeAndEmit(room, code, label){
 // ---------- Absence monitor ----------
 setInterval(()=>{
   for(const [code,room] of rooms.entries()){
+    // purge expired summaries
+    if(room.stage==='terminated' && room.summarySavedAt && (Date.now()-room.summarySavedAt>SUMMARY_TTL_MS)){
+      rooms.delete(code);
+      continue;
+    }
     for(const [tok,p] of room.players.entries()){
       if(!p.present && p.absentSince && Date.now()-p.absentSince > ABSENCE_TIMEOUT_MS){
         if(!p.sitOut){
@@ -230,6 +249,14 @@ io.on('connection', socket=>{
     const code=(roomCode||'').toUpperCase().trim();
     if(!/^[A-Z0-9]{3,8}$/.test(code)) return cb?.({ok:false,error:'Invalid room code'});
     const room=getRoom(code);
+
+    // If session terminated and still within 24h, just show summary & block play
+    if(room.stage==='terminated'){
+      socket.join(code);
+      socket.data.roomCode=code;
+      io.to(socket.id).emit('sessionSummary', { summary:room.summary, savedAt:room.summarySavedAt });
+      return cb?.({ok:true, name:name||'Guest', token:null});
+    }
 
     let useToken = (token && room.players.has(token)) ? token : null;
     if(!useToken){
@@ -340,14 +367,12 @@ io.on('connection', socket=>{
     io.to(code).emit('roomUpdate', publicState(room));
   });
 
-  // --- FIXED: Start hand will auto-lock the ante if not locked, then deal ---
+  // Start hand — auto locks ante if needed
   socket.on('startHand', ()=>{
     const code=socket.data.roomCode; if(!code) return;
     const room=getRoom(code);
-
     if(room.stage!=='lobby' && room.stage!=='results') return;
 
-    // Auto-lock ante if not already locked
     if(!room.anteLocked){
       room.anteLocked = true;
       systemMsg(room, `Ante auto-locked at ${room.ante}.`);
@@ -356,6 +381,10 @@ io.on('connection', socket=>{
 
     const participants=[...room.players.entries()].filter(([_,p])=>!p.sitOut).map(([t])=>t);
     if(participants.length<2) return;
+
+    // snapshot balances BEFORE any ante for per-hand delta
+    room.lastStartBalances = new Map();
+    participants.forEach(tok => room.lastStartBalances.set(tok, +(room.players.get(tok).balance||0)));
 
     room.deck=newDeck(); room.board=[]; room.stage='selecting'; room.handNumber++;
     room.holes=new Map(); room.equities={he:{},plo:{}};
@@ -428,18 +457,38 @@ io.on('connection', socket=>{
     io.to(code).emit('roomUpdate', publicState(room));
   });
 
+  socket.on('terminateRoom', ()=>{
+    const code=socket.data.roomCode; if(!code) return;
+    const room=getRoom(code);
+    // Build summary for everyone who ever sat (current players map)
+    const summary = {
+      room: code,
+      hands: room.handNumber,
+      players: [...room.players.entries()].map(([id,p])=>({
+        id, name:p.name, finalBalance:+(p.balance||0),
+        stats:{ ...p.stats }
+      })),
+      createdAt: Date.now() - (room.handNumber>0?1:0),
+    };
+    room.summary = summary;
+    room.summarySavedAt = Date.now();
+    room.stage='terminated';
+    clearSelectionTimer(room);
+    io.to(code).emit('sessionSummary', { summary, savedAt: room.summarySavedAt });
+  });
+
   socket.on('chatMessage', text=>{
     const code=socket.data.roomCode; if(!code) return;
-    const room=getRoom(code); const tok=socket.data.token; const p=room.players.get(tok); if(!p) return;
+    const room=getRoom(code); const tok=socket.data.token; const p=room.players.get(tok); if(!p && room.stage!=='terminated') return;
     const t=(''+(text||'')).trim(); if(!t) return;
-    const msg={from:p.name,text:t.slice(0,500),ts:Date.now()};
+    const msg={from:(p?p.name:'system'),text:t.slice(0,500),ts:Date.now(),system:!p};
     room.chat.push(msg); if(room.chat.length>500) room.chat.shift();
     io.to(code).emit('chatMessage', msg);
   });
 
   socket.on('disconnect', ()=>{
     const code=socket.data.roomCode; if(!code) return;
-    const room=getRoom(code); const tok=socket.data.token;
+    const room=rooms.get(code); const tok=socket.data.token;
     if(!room||!tok||!room.players.has(tok)) return;
     const p=room.players.get(tok);
     p.present=false; p.absentSince=Date.now();
@@ -492,10 +541,20 @@ function scoreAndFinish(room, code){
   }
   if (scoops.length) room.players.get(scoops[0]).stats.scoops++;
 
+  // Per-hand deltas and running totals
+  const startMap = room.lastStartBalances || new Map();
+  const perHandDeltas = {};
+  const playersSnapshot = [];
+  for(const [tok,p] of room.players.entries()){
+    const start = +(startMap.has(tok)? startMap.get(tok) : p.balance);
+    const delta = +(p.balance - start);
+    perHandDeltas[tok] = delta;
+    playersSnapshot.push({ id:tok, name:p.name, balance:+(p.balance||0) });
+  }
+
   const picks={}; for(const [tok,seat] of room.holes.entries()){
     picks[tok]={ name:room.players.get(tok).name, holdem:seat.pickHoldem, plo:seat.pickPLO, hole:seat.hole };
   }
-  const playersSnapshot=[...room.players.entries()].map(([id,p])=>({ id, name:p.name, balance:+(p.balance||0) }));
 
   io.to(code).emit('results',{
     board:room.board,
@@ -504,7 +563,8 @@ function scoreAndFinish(room, code){
     scoopBonusApplied,
     picks,
     handNumber:room.handNumber,
-    players:playersSnapshot
+    players:playersSnapshot,
+    deltas: perHandDeltas
   });
 
   room.stage='results';
