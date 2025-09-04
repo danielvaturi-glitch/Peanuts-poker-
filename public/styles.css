@@ -43,87 +43,30 @@ h2,h3,h4{ margin:8px 0; }
 }
 .setting{ background:var(--panel2); padding:12px; border-radius:8px; }
 .setting label{ display:block; font-weight:600; margin-bottom:6px; }
-.timerRow{ display:flex; align-items:center; gap:8px; }
 .controls{ display:flex; gap:8px; flex-wrap:wrap; }
 .badge{ background:#555; padding:3px 8px; border-radius:999px; margin-left:6px; font-size:12px; }
-.kickHint{ color:var(--muted); font-size:12px; margin-top:6px; }
-
-#players .playerRow{ display:flex; justify-content:space-between; align-items:center; background:var(--panel2); padding:8px; border-radius:8px; margin:6px 0; }
-.namechip{ font-weight:700; }
-.positive{ color:#67ff86; } .negative{ color:#ff6b6b; }
-.badge.warn{ background:#9d3; color:#002; }
 
 /* Selecting */
-.selectRow{ display:grid; grid-template-columns: 1fr 320px 260px; gap:16px; }
-.picksBox, .statusBox{ background:var(--panel); padding:12px; border-radius:8px; }
+.selectRow{ display:grid; grid-template-columns: 1fr 320px; gap:16px; }
+.picksBox{ background:var(--panel); padding:12px; border-radius:8px; }
 .pickRow{ min-height:152px; background:rgba(0,0,0,.15); border-radius:8px; padding:6px; display:flex; flex-wrap:wrap; align-items:center; }
-.countdown{ margin-top:8px; color:var(--accent); font-weight:700; }
 
 /* Board & table */
-.boardRow{ display:flex; align-items:flex-start; gap:16px; }
 .board{ display:flex; gap:8px; background:var(--panel); padding:12px; border-radius:8px; min-height:156px; }
-.revealBtns{ display:flex; flex-direction:column; gap:8px; }
-.tableGrid{
-  display:grid; grid-template-columns: repeat(auto-fit,minmax(360px,1fr));
-  gap:16px;
-}
+.tableGrid{ display:grid; grid-template-columns: repeat(auto-fit,minmax(360px,1fr)); gap:16px; }
 .seat{ background:var(--panel); padding:12px; border-radius:10px; }
 .pname{ font-weight:800; margin-bottom:8px; }
 .handRow{ display:flex; align-items:center; gap:10px; margin:8px 0; flex-wrap:wrap; }
 .handRow .label{ width:44px; opacity:.85; font-weight:700; }
 .eq{ margin-left:auto; font-weight:800; }
 
-/* Winners & deltas */
+/* Winners */
 .winners{ background:var(--panel); padding:10px; border-radius:10px; margin:8px 0; }
-.deltas{ background:var(--panel); padding:10px; border-radius:10px; margin:8px 0; }
-.deltaRow{ display:flex; justify-content:space-between; padding:4px 0; }
-.deltaPlus{ color:#67ff86; } .deltaMinus{ color:#ff6b6b; }
 
-/* Chat bottom bar — never blocks UI */
-.chatBar{
-  position:fixed; left:0; right:0; bottom:0; background:#0f1f18; border-top:2px solid #1c3325; z-index:5;
-  box-shadow: 0 -6px 18px rgba(0,0,0,.25);
-}
-.chatHead{ display:flex; align-items:center; justify-content:space-between; padding:8px 10px; }
-#chatCollapse{ background:#163c28; border-radius:6px; padding:6px 10px; }
-.chatBody{ max-height:180px; transition:max-height .2s ease; overflow:hidden; }
-.chatBar.minimized .chatBody{ max-height:0; }
-.chatReveal{ padding:8px 10px; display:flex; align-items:center; gap:6px; background:#0a0f0d; border-top:1px solid #1c3325; cursor:pointer; }
-.chatBar.minimized .chatReveal{ display:flex; }
-.chatBar:not(.minimized) .chatReveal{ display:none; }
-
-.chatLog{ height:140px; overflow:auto; padding:8px; font-size:13px; background:#050505; }
-.chatInputRow{ display:flex; gap:6px; padding:8px; border-top:1px solid #1c3325; }
-.chatmsg{ margin:2px 0; } .chatmsg.system{ color:#aaa; }
-.who{ font-weight:700; margin-right:6px; }
-
-/* Ensure content never sits under chat: provide bottom padding */
-body.room-visible.chat-open { padding-bottom: 240px; }
-body.room-visible.chat-min { padding-bottom: 44px; }
-
-/* Cards — crisp vector */
+/* Cards */
 .cardchip{ display:inline-block; margin:4px; cursor:pointer; position:relative; }
 .cardchip.selected{ outline:3px solid #2b8a3e; outline-offset:2px; border-radius:12px; }
 .cardsvg{ width:104px; height:146px; text-rendering:geometricPrecision; shape-rendering:geometricPrecision; }
 .cardsvg.mini{ width:88px; height:124px; }
 .seat .cardsvg{ width:92px; height:130px; }
 .seat .cardsvg.mini{ width:84px; height:118px; }
-
-/* Scoop fireworks */
-.scoopFX{ position:fixed; inset:0; display:flex; align-items:center; justify-content:center; pointer-events:none; }
-.scoopFX.hidden{ display:none; }
-.scoopText{ position:absolute; top:38%; font-size:42px; font-weight:900; color:#ffe66d; text-shadow:0 3px 8px rgba(0,0,0,.6); }
-.boom, .boom::before, .boom::after{
-  position:absolute; width:8px; height:8px; background:#ffd166; border-radius:50%;
-  animation: explode 1.4s ease-out infinite;
-}
-.boom{ top:58%; left:46%; }
-.boom.delay{ animation-delay:.5s; left:54%; }
-.boom::before, .boom::after{ content:""; display:block; position:absolute; }
-.boom::before{ left:-20px; top:-30px; }
-.boom::after{ left:22px; top:-26px; }
-@keyframes explode{
-  0%{ transform:scale(0); opacity:1; }
-  70%{ transform:scale(12); opacity:.7; }
-  100%{ transform:scale(15); opacity:0; }
-}
