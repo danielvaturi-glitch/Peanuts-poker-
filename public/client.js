@@ -1,6 +1,6 @@
 // Peanuts Poker — Stable Baseline v1 (client)
-// Keeps sleek home; room-only controls. Crisp SVG card images.
-// Core flow: join -> lobby (ante lock) -> start hand -> select -> reveal streets -> results -> next/terminate.
+// Fix: After you lock your selections, your cards remain visible.
+// We (1) stop wiping picks after lock, (2) show your locked hands on Revealed/Results.
 
 const socket = io();
 const $ = id => document.getElementById(id);
@@ -44,6 +44,7 @@ function getIdentity(){ try{ return { token:localStorage.getItem("peanutsToken")
 const state = {
   room:null, token:null, you:null,
   yourCards:[], pickH:new Set(), pickP:new Set(),
+  youLocked:false,
   stage:'home',
   board:[]
 };
@@ -185,6 +186,7 @@ function renderHand(cards){
   refreshPicks();
 }
 function toggleSelection(card){
+  if(state.youLocked) return; // prevent changes after lock
   if(state.pickH.has(card)){ state.pickH.delete(card); }
   else if(state.pickP.has(card)){ state.pickP.delete(card); }
   else if(state.pickH.size<2){ state.pickH.add(card); }
@@ -201,6 +203,22 @@ function refreshPicks(){
   });
 }
 function renderBoard(el,cards){ el.innerHTML=''; (cards||[]).forEach(c=>el.appendChild(cardChip(c,false))); }
+
+// Show your locked hands on revealed/results
+function renderYourLockedSeat(container){
+  container.innerHTML = '';
+  const seat=document.createElement('div'); seat.className='seat';
+  seat.innerHTML = `
+    <div class="pname">${state.you||'You'}</div>
+    <div class="handRow"><div class="label">HE</div><div class="cards he"></div></div>
+    <div class="handRow"><div class="label">PLO</div><div class="cards plo"></div></div>
+  `;
+  const he = seat.querySelector('.cards.he');
+  const plo = seat.querySelector('.cards.plo');
+  [...state.pickH].forEach(c=>he.appendChild(cardChip(c,true)));
+  [...state.pickP].forEach(c=>plo.appendChild(cardChip(c,true)));
+  container.appendChild(seat);
+}
 
 /* ---------------------------- Actions ----------------------------- */
 function lockSelections(){
@@ -228,10 +246,14 @@ socket.on('roomUpdate', data=>{
   state.stage = data.stage;
   window._anteLockedFlag = !!data.anteLocked;
 
+  // Know if YOU are locked (so we don't wipe your picks)
+  const me = (data.players||[]).find(p => p.id === state.token);
+  state.youLocked = !!me?.locked;
+
   if(data.stage==='lobby'){ show(lobby); }
   if(data.stage==='selecting'){ show(selecting); socket.emit('requestYourCards'); }
-  if(data.stage==='revealed'){ show(revealed); }
-  if(data.stage==='results'){ show(results); }
+  if(data.stage==='revealed'){ show(revealed); renderYourLockedSeat(tableGrid); }
+  if(data.stage==='results'){ show(results); renderYourLockedSeat(tableGridFinal); }
 
   renderPlayers(data.players);
   anteInput.value = data.ante||0;
@@ -245,7 +267,10 @@ socket.on('roomUpdate', data=>{
 
 socket.on('yourCards', ({cards})=>{
   state.yourCards = cards||[];
-  state.pickH.clear(); state.pickP.clear();
+  // ✅ Do NOT clear your picks once you're locked
+  if(!state.youLocked){
+    state.pickH.clear(); state.pickP.clear();
+  }
   renderHand(state.yourCards);
 });
 
