@@ -59,7 +59,6 @@ function newDeck(){
 }
 
 /* ------------------------- Hand evaluation ------------------------- */
-// Very compact 5-card evaluator and Hold’em/PLO scorers
 const cv = c => RANK_ORDER[c[0]];
 const cs = c => c[1];
 
