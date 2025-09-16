@@ -1,94 +1,106 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
+  <meta charset="UTF-8" />
   <title>Peanuts Poker</title>
-  <link rel="stylesheet" href="styles.css">
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
-  <!-- Home Hero -->
-  <div id="homeHero" class="hero">
+  <!-- HOME (only this is visible at first) -->
+  <header class="hero" id="homeHero">
     <div class="brand">
-      <img src="peanut.png" alt="Peanut" class="peanut-img">
+      <!-- Use absolute path so it loads from /public -->
+      <img src="/peanut.png" alt="Peanut" class="peanut-img" />
       <h1>Peanuts Poker</h1>
       <p>Texas + Omaha — with a nutty twist</p>
     </div>
     <div class="join">
-      <input id="room" placeholder="Room code">
-      <input id="name" placeholder="Name">
+      <input id="room" placeholder="Room Code (3–8 letters/numbers)" maxlength="8" />
+      <input id="name" placeholder="Your Name" maxlength="20" />
       <button id="joinBtn" class="primary">Join Room</button>
-      <div class="hint">Create or join an existing room</div>
+      <div class="hint">Share the same room code with friends (max 6).</div>
     </div>
-  </div>
+  </header>
 
-  <!-- Lobby -->
-  <div id="lobby" class="screen hidden">
-    <h2 id="roomBadge"></h2>
-    <div id="players"></div>
-    <div class="settings">
-      <div class="setting">
-        <label>Ante <span id="anteLockedBadge" class="badge"></span></label>
-        <input id="anteInput" type="number">
-        <button id="lockAnte">Lock Ante</button>
-      </div>
-      <div class="setting">
-        <label>Scoop Bonus <span id="scoopLockedBadge" class="badge"></span></label>
-        <input id="scoopInput" type="number">
-        <button id="lockScoop">Lock Scoop</button>
-      </div>
-      <div class="setting">
-        <label>Selection Timer (seconds) <span id="timerLockedBadge" class="badge"></span></label>
-        <input id="timerInput" type="number" value="45">
-        <button id="unlockTimer">Unlock</button>
-        <button id="lockTimer">Lock</button>
-      </div>
-    </div>
-    <div class="controls">
-      <button id="startBtn" class="primary">Play Hand</button>
-      <button id="sitBtn">Sit Out</button>
-      <button id="leaveBtn" class="danger">Leave Room</button>
-    </div>
-  </div>
+  <!-- APP SCREENS (hidden until needed) -->
+  <main id="app">
+    <!-- LOBBY -->
+    <section id="lobby" class="screen hidden">
+      <h2><span id="roomBadge"></span> • <span id="handBadge"></span></h2>
 
-  <!-- Selecting -->
-  <div id="selecting" class="screen hidden">
-    <h2>Hand <span id="handBadgeSel"></span></h2>
-    <div class="selectRow">
-      <div id="yourHand" class="picksBox"></div>
-      <div class="picksBox">
-        <div class="pickRow" id="pickHoldem">Hold’em (pick 2)</div>
-        <div class="pickRow" id="pickPLO">PLO (pick 4)</div>
+      <div class="settings">
+        <div class="setting">
+          <label>Ante</label>
+          <input id="anteInput" type="number" value="100" min="0" />
+          <button id="lockAnte">Lock Ante</button>
+          <span id="anteLockedBadge" class="badge hidden">Locked</span>
+        </div>
+
         <div class="controls">
+          <button id="startBtn" class="primary">Play Hand</button>
+          <button id="leaveBtn">Leave Room</button>
+          <button id="terminateBtn" class="danger">Terminate Room</button>
+        </div>
+      </div>
+
+      <h3>Players</h3>
+      <div id="players"></div>
+    </section>
+
+    <!-- SELECTING -->
+    <section id="selecting" class="screen hidden">
+      <h2>Hand <span id="handBadgeSel"></span> • Select Your Cards</h2>
+      <div class="selectRow">
+        <div>
+          <h4>Your 6 Cards</h4>
+          <div id="yourHand"></div>
+        </div>
+        <div class="picksBox">
+          <h4>Hold’em (pick 2)</h4>
+          <div id="pickHoldem" class="pickRow"></div>
+          <h4>PLO (pick 4)</h4>
+          <div id="pickPLO" class="pickRow"></div>
           <button id="lockBtn" class="primary">Lock Selections</button>
         </div>
-        <div id="lockStatus"></div>
-        <div id="countdown"></div>
       </div>
-    </div>
-  </div>
+    </section>
 
-  <!-- Revealed -->
-  <div id="revealed" class="screen hidden">
-    <h2>Hand <span id="handBadge"></span></h2>
-    <div id="tableGrid" class="tableGrid"></div>
-    <div id="board" class="board"></div>
-    <button id="revealBtn" class="primary">Reveal Next</button>
-  </div>
+    <!-- REVEALED -->
+    <section id="revealed" class="screen hidden">
+      <h2>Board</h2>
+      <div id="board" class="board"></div>
+      <button id="revealBtn" class="primary">Reveal Flop</button>
 
-  <!-- Results -->
-  <div id="results" class="screen hidden">
-    <h2>Hand <span id="handBadgeRes"></span> Results</h2>
-    <div id="tableGridFinal" class="tableGrid"></div>
-    <div id="finalBoard" class="board"></div>
-    <div id="winners" class="winners"></div>
-    <div class="controls">
-      <button id="nextBtn" class="primary">Next Hand</button>
-      <button id="changeSettingsBtn">Change Settings</button>
-      <button id="leaveBtn" class="danger">Leave Room</button>
-    </div>
-  </div>
+      <h3>Your Locked Hands</h3>
+      <div id="tableGrid" class="tableGrid"></div>
+    </section>
+
+    <!-- RESULTS -->
+    <section id="results" class="screen hidden">
+      <h2>Results • Hand <span id="handBadgeRes"></span></h2>
+      <div id="finalBoard" class="board"></div>
+      <div id="winners" class="winners"></div>
+
+      <h3>Your Locked Hands</h3>
+      <div id="tableGridFinal" class="tableGrid"></div>
+
+      <div class="resultsBtns">
+        <button id="nextBtn" class="primary">Play Next Hand</button>
+        <button id="changeSettingsBtn">Change Settings</button>
+        <button id="terminateBtn2" class="danger">Terminate Room</button>
+      </div>
+    </section>
+
+    <!-- TERMINATED -->
+    <section id="terminated" class="screen hidden">
+      <h2>Session Summary</h2>
+      <div id="summaryInfo"></div>
+      <button id="leaveFromSummary">Leave Room</button>
+    </section>
+  </main>
 
   <script src="/socket.io/socket.io.js"></script>
-  <script src="client.js"></script>
+  <script src="/client.js"></script>
 </body>
 </html>
