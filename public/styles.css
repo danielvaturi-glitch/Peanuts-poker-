@@ -1,4 +1,4 @@
-/* Peanuts Poker — Sleek Black Theme (no flow changes) */
+/* Peanuts Poker — Sleek Black Theme + Collapsible Options (visual only) */
 
 :root{
   --bg-dark: #0d0d0f;
@@ -61,15 +61,48 @@ button:active{ transform: translateY(1px); }
 .screen{ padding:16px; max-width:1200px; margin: 0 auto; }
 h2,h3,h4{ margin:8px 0; }
 
-/* ROOM */
-.settings{
-  display:grid; gap:12px; grid-template-columns: repeat(auto-fit,minmax(260px,1fr));
-  background: var(--panel); padding:12px; border-radius:12px; border:1px solid var(--line);
+/* ROOM HEADER */
+.roomHeader{ display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.ghost{
+  background:transparent; border:1px solid var(--line); color:var(--text); opacity:.9;
 }
-.setting{ background: var(--panel2); padding:12px; border-radius:12px; }
-.setting label{ display:block; font-weight:700; margin-bottom:6px; }
-.controls{ display:flex; gap:8px; flex-wrap:wrap; }
-.badge{ background:#444; padding:3px 8px; border-radius:999px; margin-left:6px; font-size:12px; }
+.ghost.small{ padding:8px 10px; border-radius:8px; font-size:13px; }
+
+/* OPTIONS PANEL */
+.options{
+  margin:12px 0 10px 0;
+  border:1px solid var(--line);
+  background: var(--panel);
+  border-radius:12px;
+  overflow: clip;
+  transition: grid-template-rows .25s ease;
+  display:grid;
+  grid-template-rows: 44px 1fr; /* header + body */
+}
+.options.collapsed{
+  grid-template-rows: 44px 0fr;
+}
+.optionsHeader{
+  display:flex; align-items:center; justify-content:space-between;
+  padding:10px 12px; background: var(--panel2);
+}
+.optionsHeader .title{ font-weight:800; letter-spacing:.3px; }
+.options .settings{
+  padding:12px;
+  border-top:1px solid var(--line);
+  display:grid; gap:12px; grid-template-columns: repeat(auto-fit,minmax(260px,1fr));
+}
+.setting{ background: rgba(255,255,255,0.02); padding:12px; border-radius:10px; }
+.setting .row{ display:flex; gap:8px; align-items:center; }
+.muted{ color:var(--muted); font-size:13px; margin-top:6px; }
+.mutedBlock{ opacity:.7; }
+.mutedList{ margin:6px 0 0 16px; padding:0; }
+
+/* CONTROLS */
+.controls{ display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; }
+
+/* PLAYERS LIST */
+#players .playerRow{ display:flex; justify-content:space-between; align-items:center; background:#222226; padding:10px 12px; border-radius:10px; margin:6px 0; }
 
 /* SELECTING */
 .selectRow{ display:grid; grid-template-columns: 1fr 320px; gap:16px; }
@@ -85,13 +118,10 @@ h2,h3,h4{ margin:8px 0; }
 .handRow .label{ width:44px; opacity:.85; font-weight:800; }
 .eq{ margin-left:auto; font-weight:900; }
 
-/* PLAYERS LIST */
-#players .playerRow{ display:flex; justify-content:space-between; align-items:center; background:#222226; padding:10px 12px; border-radius:10px; margin:6px 0; }
-
 /* WINNERS */
 .winners{ background:var(--panel); padding:10px; border-radius:12px; margin:8px 0; }
 
-/* CARDS (image + svg fallback) */
+/* CARDS */
 .cardchip{ display:inline-block; margin:4px; cursor:pointer; position:relative; }
 .cardchip.selected{ outline:3px solid #2e7dff; outline-offset:2px; border-radius:12px; }
 .cardimg{ width:104px; height:auto; border-radius:10px; box-shadow:0 2px 6px rgba(0,0,0,.7); background:#fff; }
