@@ -10,7 +10,7 @@
   <!-- HOME (only this is visible at first) -->
   <header class="hero" id="homeHero">
     <div class="brand">
-      <!-- Use absolute path so it loads from /public -->
+      <!-- If /peanut.png is missing, the alt text will show; we'll revisit image later -->
       <img src="/peanut.png" alt="Peanut" class="peanut-img" />
       <h1>Peanuts Poker</h1>
       <p>Texas + Omaha — with a nutty twist</p>
@@ -27,21 +27,45 @@
   <main id="app">
     <!-- LOBBY -->
     <section id="lobby" class="screen hidden">
-      <h2><span id="roomBadge"></span> • <span id="handBadge"></span></h2>
+      <div class="roomHeader">
+        <h2><span id="roomBadge"></span> • <span id="handBadge"></span></h2>
+        <button id="toggleOptions" class="ghost">Options</button>
+      </div>
 
-      <div class="settings">
-        <div class="setting">
-          <label>Ante</label>
-          <input id="anteInput" type="number" value="100" min="0" />
-          <button id="lockAnte">Lock Ante</button>
-          <span id="anteLockedBadge" class="badge hidden">Locked</span>
+      <!-- Collapsible Options Panel -->
+      <div id="optionsPanel" class="options collapsed">
+        <div class="optionsHeader">
+          <div class="title">Room Options</div>
+          <button id="collapseOptions" class="ghost small" title="Hide options">✕</button>
         </div>
 
-        <div class="controls">
-          <button id="startBtn" class="primary">Play Hand</button>
-          <button id="leaveBtn">Leave Room</button>
-          <button id="terminateBtn" class="danger">Terminate Room</button>
+        <div class="settings">
+          <div class="setting">
+            <label>Ante</label>
+            <div class="row">
+              <input id="anteInput" type="number" value="100" min="0" />
+              <button id="lockAnte">Lock Ante</button>
+              <span id="anteLockedBadge" class="badge hidden">Locked</span>
+            </div>
+            <div class="muted">Any player can set and lock the ante before a hand.</div>
+          </div>
+
+          <!-- Placeholders for future items; not wired yet -->
+          <div class="setting mutedBlock">
+            <label>Other options (coming soon)</label>
+            <ul class="mutedList">
+              <li>Selection timer</li>
+              <li>Sit out per hand</li>
+              <li>Scoop bonus</li>
+            </ul>
+          </div>
         </div>
+      </div>
+
+      <div class="controls">
+        <button id="startBtn" class="primary">Play Hand</button>
+        <button id="leaveBtn">Leave Room</button>
+        <button id="terminateBtn" class="danger">Terminate Room</button>
       </div>
 
       <h3>Players</h3>
