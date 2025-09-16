@@ -1,6 +1,4 @@
-// Peanuts Poker — Stable flow (home -> lobby -> selecting/revealed/results)
-// Fixes: ensure only Home shows first, Lobby shows after joining;
-// peanut image path is handled by index.html (absolute path).
+// Peanuts Poker — Stable flow + Collapsible Options (no gameplay changes)
 
 const socket = io();
 const $ = id => document.getElementById(id);
@@ -19,11 +17,16 @@ const boardEl = $("board"), revealBtn = $("revealBtn");
 const finalBoardEl = $("finalBoard"), winnersDiv = $("winners");
 const tableGrid = $("tableGrid"), tableGridFinal = $("tableGridFinal");
 
+// Options UI
+const optionsPanel = $("optionsPanel");
+const toggleOptionsBtn = $("toggleOptions");
+const collapseOptionsBtn = $("collapseOptions");
+
 // Buttons
 $("joinBtn").onclick = joinRoom;
 $("leaveBtn").onclick = leaveRoom;
 $("lockAnte").onclick = ()=>socket.emit('lockAnte');
-$("startBtn").onclick = ()=>socket.emit('startHand');
+$("startBtn").onclick = startHandAndCollapseOptions;
 $("lockBtn").onclick = lockSelections;
 $("revealBtn").onclick = ()=>socket.emit('revealNextStreet');
 $("nextBtn").onclick = ()=>socket.emit('startHand');
@@ -39,6 +42,25 @@ anteInput.onchange = ()=>socket.emit('setAnte', Number(anteInput.value)||0);
 function saveIdentity(token, room){ try{ localStorage.setItem("peanutsToken", token); localStorage.setItem("peanutsRoom", room);}catch{} }
 function clearIdentity(){ try{ localStorage.removeItem("peanutsToken"); localStorage.removeItem("peanutsRoom"); }catch{} }
 function getIdentity(){ try{ return { token:localStorage.getItem("peanutsToken"), room:localStorage.getItem("peanutsRoom") }; }catch{ return {}; } }
+
+// Options collapse state (persist per room)
+function optionsKey(room){ return `pp_opts_collapsed_${room||'__'}`; }
+function setOptionsCollapsed(room, collapsed){
+  const cl = optionsPanel.classList;
+  if(collapsed) cl.add("collapsed"); else cl.remove("collapsed");
+  try{ localStorage.setItem(optionsKey(room), collapsed ? "1" : "0"); }catch{}
+}
+function getOptionsCollapsed(room){
+  try{ return localStorage.getItem(optionsKey(room)) === "1"; }catch{ return false; }
+}
+toggleOptionsBtn?.addEventListener('click', ()=>{
+  if(!state.room) return;
+  setOptionsCollapsed(state.room, !optionsPanel.classList.contains('collapsed'));
+});
+collapseOptionsBtn?.addEventListener('click', ()=>{
+  if(!state.room) return;
+  setOptionsCollapsed(state.room, true);
+});
 
 // State
 const state = {
@@ -80,10 +102,21 @@ function joinRoom(){
     state.room=room; state.token=res.token; state.you=res.name;
     saveIdentity(res.token, room);
     roomBadge.textContent=`Room ${room}`;
+
+    // Options: First time in room (hand 0) → expanded; otherwise respect saved state
+    const collapsed = getOptionsCollapsed(room);
+    setOptionsCollapsed(room, (collapsed === true)); // apply saved
     show(lobby);
   });
 }
 function leaveRoom(){ clearIdentity(); location.reload(); }
+
+/* ------------------------ Collapse on start hand ------------------- */
+function startHandAndCollapseOptions(){
+  // Collapse options when a hand starts (and remember)
+  if(state.room) setOptionsCollapsed(state.room, true);
+  socket.emit('startHand');
+}
 
 /* --------------------- Card images + SVG fallback ------------------ */
 function mapToFilename(card){
@@ -267,6 +300,8 @@ window.addEventListener('load', ()=>{
       if(res?.ok){
         state.room=room; state.token=res.token; state.you=res.name;
         roomBadge.textContent=`Room ${room}`;
+        // Apply saved options collapsed state for this room
+        setOptionsCollapsed(room, getOptionsCollapsed(room));
         show(lobby);
       } else {
         // stay on home if token invalid / room missing
