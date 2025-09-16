@@ -1,6 +1,6 @@
-// Peanuts Poker — Stable Baseline v1 (client)
-// Fix: After you lock your selections, your cards remain visible.
-// We (1) stop wiping picks after lock, (2) show your locked hands on Revealed/Results.
+// Peanuts Poker — client.js (image card pack integration + SVG fallback)
+// Uses /cards/<name>.png from PNG-cards-1.3 pack. Falls back to SVG if missing.
+// All other behavior unchanged (baseline flow).
 
 const socket = io();
 const $ = id => document.getElementById(id);
@@ -78,7 +78,18 @@ function joinRoom(){
 }
 function leaveRoom(){ clearIdentity(); location.reload(); }
 
-/* ------------------------ Card rendering (SVG) --------------------- */
+/* --------------------- Image cards + SVG fallback ------------------ */
+function mapToFilename(card){
+  // card like "Ah", "Td", "7c", "Ks"
+  const r = card[0].toUpperCase();
+  const s = card[1].toLowerCase();
+  const suitWord = { c:'clubs', d:'diamonds', h:'hearts', s:'spades' }[s];
+  const rankWord = { T:'10', J:'jack', Q:'queen', K:'king', A:'ace' }[r] || r; // 2-9 or 10/J/Q/K/A
+  return `${rankWord}_of_${suitWord}.png`;
+}
+function imagePath(card){ return `/cards/${mapToFilename(card)}`; }
+
+// Minimal crisp SVG fallback (we already used this in baseline)
 function suitPath(s){
   switch(s){
     case 'h': return {d:'M100 70 C100 40, 60 30, 50 55 C40 30, 0 40, 0 70 C0 100, 50 120, 100 160 C150 120, 200 100, 200 70 C200 40, 160 30, 150 55 C140 30, 100 40, 100 70 Z', scale:.55, y:25};
@@ -106,7 +117,7 @@ function pipLayout(rank){
     default: return [];
   }
 }
-function cardChip(card, mini=false){
+function svgFallback(card, mini=false){
   const rank=card[0].toUpperCase(), suit=card[1].toLowerCase();
   const viewW=200, viewH=280;
   const color = suitColor(suit);
@@ -154,9 +165,28 @@ function cardChip(card, mini=false){
     ${isAce ? aceBig : ''}
     ${isFace ? facePanel : ''}
   </svg>`;
+  return svg;
+}
+window._cardImgError = function(imgElem, card, mini){
+  // If image fails, replace with SVG
+  const wrap = imgElem.parentElement;
+  if(!wrap) return;
+  wrap.innerHTML = svgFallback(card, mini);
+};
 
-  const d=document.createElement('div'); d.className='cardchip'; if(mini) d.classList.add('mini');
-  d.setAttribute('data-card',card); d.innerHTML=svg;
+function cardChip(card, mini=false){
+  const d=document.createElement('div');
+  d.className='cardchip';
+  if(mini) d.classList.add('mini');
+  d.setAttribute('data-card',card);
+
+  const img=document.createElement('img');
+  img.className = mini ? 'cardimg mini' : 'cardimg';
+  img.alt = card;
+  img.src = imagePath(card);
+  img.onerror = ()=>window._cardImgError(img, card, mini);
+
+  d.appendChild(img);
   return d;
 }
 
@@ -246,7 +276,7 @@ socket.on('roomUpdate', data=>{
   state.stage = data.stage;
   window._anteLockedFlag = !!data.anteLocked;
 
-  // Know if YOU are locked (so we don't wipe your picks)
+  // detect if you are locked
   const me = (data.players||[]).find(p => p.id === state.token);
   state.youLocked = !!me?.locked;
 
@@ -267,7 +297,6 @@ socket.on('roomUpdate', data=>{
 
 socket.on('yourCards', ({cards})=>{
   state.yourCards = cards||[];
-  // ✅ Do NOT clear your picks once you're locked
   if(!state.youLocked){
     state.pickH.clear(); state.pickP.clear();
   }
