@@ -1,4 +1,4 @@
-/* Peanuts Poker — Stable Baseline v1 */
+/* Peanuts Poker — styles.css with card image sizing (keeps sleek home) */
 :root{
   --bg:#0b6623;
   --panel:#102b19;
@@ -64,14 +64,17 @@ h2,h3,h4{ margin:8px 0; }
 /* Winners */
 .winners{ background:var(--panel); padding:10px; border-radius:10px; margin:8px 0; }
 
-/* Cards */
+/* Card visuals */
 .cardchip{ display:inline-block; margin:4px; cursor:pointer; position:relative; }
 .cardchip.selected{ outline:3px solid #2b8a3e; outline-offset:2px; border-radius:12px; }
+
+/* Image-based cards */
+.cardimg{ width:104px; height:auto; border-radius:10px; box-shadow:0 2px 6px rgba(0,0,0,.35); background:#fff; }
+.cardimg.mini{ width:88px; }
+
+/* (SVG fallback keeps previous sizes) */
 .cardsvg{ width:104px; height:146px; text-rendering:geometricPrecision; shape-rendering:geometricPrecision; }
 .cardsvg.mini{ width:88px; height:124px; }
-.seat .cardsvg{ width:92px; height:130px; }
-.seat .cardsvg.mini{ width:84px; height:118px; }
 
-/* Players list */
-#players .playerRow{ display:flex; justify-content:space-between; align-items:center; background:var(--panel2); padding:10px 12px; border-radius:8px; margin:6px 0; }
-.namechip{ font-weight:800; }
+.seat .cardimg{ width:92px; }
+.seat .cardimg.mini{ width:84px; }
